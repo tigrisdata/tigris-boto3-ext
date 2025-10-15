@@ -89,7 +89,11 @@ addopts = [
 [dependency-groups]
 dev = [
     "black>=24.8.0",
+    "build>=1.0.0",
     "ipython>=8.18.1",
     "mypy>=1.14.1",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
     "ruff>=0.14.0",
+    "twine>=4.0.0",
 ]

@@ -99,6 +99,10 @@ jobs:
         with:
           version: "latest"
 
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras
+
       - name: Build package
         run: |
           uv build
