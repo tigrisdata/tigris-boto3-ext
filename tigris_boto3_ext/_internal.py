@@ -51,7 +51,11 @@ class HeaderInjector:
             # Handler already registered, increment reference count and update headers
             handler, ref_count, shared_headers = _handler_registry[self._registry_key]
             shared_headers.update(self.headers)
-            _handler_registry[self._registry_key] = (handler, ref_count + 1, shared_headers)
+            _handler_registry[self._registry_key] = (
+                handler,
+                ref_count + 1,
+                shared_headers,
+            )
         else:
             # First registration, create shared headers dict and handler
             shared_headers = self.headers.copy()
@@ -68,7 +72,11 @@ class HeaderInjector:
 
         if ref_count > 1:
             # Still have nested contexts, just decrement
-            _handler_registry[self._registry_key] = (handler, ref_count - 1, shared_headers)
+            _handler_registry[self._registry_key] = (
+                handler,
+                ref_count - 1,
+                shared_headers,
+            )
         else:
             # Last reference, actually unregister
             self.client.meta.events.unregister(self.event_name, handler)
