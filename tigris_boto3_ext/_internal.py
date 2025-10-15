@@ -2,9 +2,9 @@
 
 from typing import Any, Callable
 
-# Global registry to track handlers across all HeaderInjector instances
-# Key: (client_id, event_name) -> (handler_function, reference_count)
-_handler_registry: dict[tuple[int, str], tuple[Callable, int]] = {}
+# Global registry to track handlers and headers
+# Key: (client_id, event_name) -> (handler_function, reference_count, headers_dict)
+_handler_registry: dict[tuple[int, str], tuple[Callable, int, dict[str, str]]] = {}
 
 
 class HeaderInjector:
@@ -31,11 +31,16 @@ class HeaderInjector:
         """Set all headers to be injected."""
         self.headers = headers.copy()
 
-    def _create_handler(self) -> Callable:
-        """Create event handler function."""
+    def _create_handler(self, headers_dict: dict[str, str]) -> Callable:
+        """
+        Create event handler function that references shared headers dict.
+
+        Args:
+            headers_dict: Shared dictionary that will be updated by all instances
+        """
 
         def handler(request: Any, **kwargs: Any) -> None:
-            for name, value in self.headers.items():
+            for name, value in headers_dict.items():
                 request.headers[name] = value
 
         return handler
@@ -43,25 +48,27 @@ class HeaderInjector:
     def register(self) -> None:
         """Register event handler with boto3, using reference counting for nested contexts."""
         if self._registry_key in _handler_registry:
-            # Handler already registered, increment reference count
-            handler, ref_count = _handler_registry[self._registry_key]
-            _handler_registry[self._registry_key] = (handler, ref_count + 1)
+            # Handler already registered, increment reference count and update headers
+            handler, ref_count, shared_headers = _handler_registry[self._registry_key]
+            shared_headers.update(self.headers)
+            _handler_registry[self._registry_key] = (handler, ref_count + 1, shared_headers)
         else:
-            # First registration, create and register handler
-            handler = self._create_handler()
+            # First registration, create shared headers dict and handler
+            shared_headers = self.headers.copy()
+            handler = self._create_handler(shared_headers)
             self.client.meta.events.register(self.event_name, handler)
-            _handler_registry[self._registry_key] = (handler, 1)
+            _handler_registry[self._registry_key] = (handler, 1, shared_headers)
 
     def unregister(self) -> None:
         """Unregister event handler from boto3, respecting nested contexts."""
         if self._registry_key not in _handler_registry:
             return  # Not registered
 
-        handler, ref_count = _handler_registry[self._registry_key]
+        handler, ref_count, shared_headers = _handler_registry[self._registry_key]
 
         if ref_count > 1:
             # Still have nested contexts, just decrement
-            _handler_registry[self._registry_key] = (handler, ref_count - 1)
+            _handler_registry[self._registry_key] = (handler, ref_count - 1, shared_headers)
         else:
             # Last reference, actually unregister
             self.client.meta.events.unregister(self.event_name, handler)

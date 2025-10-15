@@ -167,15 +167,16 @@ create_fork(s3, 'restored-data', 'production-data', snapshot_version=snapshot_ve
 
 ```python
 import boto3
-from tigris_boto3_ext import create_fork, create_snapshot
+from tigris_boto3_ext import create_fork, create_snapshot, get_snapshot_version
 
 s3 = boto3.client('s3')
 
 # Create a snapshot of production data
 snapshot_result = create_snapshot(s3, 'production-data', snapshot_name='test-snapshot')
+snapshot_version = get_snapshot_version(snapshot_result)
 
 # Fork for testing (isolated copy)
-create_fork(s3, 'test-data', 'production-data', snapshot_version='12345')
+create_fork(s3, 'test-data', 'production-data', snapshot_version=snapshot_version)
 
 # Run tests against test-db without affecting production
 s3.put_object(Bucket='test-data', Key='test-data.txt', Body=b'test data')
