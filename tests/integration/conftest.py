@@ -1,6 +1,7 @@
 """Shared fixtures for integration tests."""
 
 import os
+import uuid
 
 import boto3
 import pytest
@@ -45,6 +46,21 @@ def s3_client(tigris_endpoint, aws_credentials):
 def test_bucket_prefix():
     """Prefix for test buckets to avoid conflicts."""
     return "tigris-boto3-ext-test-"
+
+
+def generate_bucket_name(prefix: str = "tigris-boto3-ext-test-", suffix: str = "") -> str:
+    """
+    Generate a unique bucket name for integration tests.
+
+    Args:
+        prefix: Bucket name prefix
+        suffix: Optional suffix to add before the UUID (e.g., 'snapshot-', 'fork-')
+
+    Returns:
+        Unique bucket name with format: {prefix}{suffix}{uuid}
+    """
+    unique_id = uuid.uuid4().hex[:12]
+    return f"{prefix}{suffix}{unique_id}"
 
 
 @pytest.fixture

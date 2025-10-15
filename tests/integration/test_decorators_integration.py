@@ -1,6 +1,6 @@
 """Integration tests for decorators."""
 
-import time
+from conftest import generate_bucket_name
 
 import pytest
 
@@ -19,7 +19,7 @@ class TestSnapshotEnabledDecorator:
         def create_snapshot_bucket(client, bucket_name):
             return client.create_bucket(Bucket=bucket_name)
 
-        bucket_name = f"{test_bucket_prefix}dec-snap-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "dec-snap-")
         cleanup_buckets.append(bucket_name)
 
         result = create_snapshot_bucket(s3_client, bucket_name)
@@ -42,7 +42,7 @@ class TestSnapshotEnabledDecorator:
                 client.put_object(Bucket=bucket_name, Key=filename, Body=content)
             return bucket_name
 
-        bucket_name = f"{test_bucket_prefix}dec-multi-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "dec-multi-")
         cleanup_buckets.append(bucket_name)
 
         files = {
@@ -65,8 +65,8 @@ class TestSnapshotEnabledDecorator:
         def create_bucket(client, name):
             return client.create_bucket(Bucket=name)
 
-        bucket1 = f"{test_bucket_prefix}dec-reuse1-{int(time.time())}"
-        bucket2 = f"{test_bucket_prefix}dec-reuse2-{int(time.time())}"
+        bucket1 = generate_bucket_name(test_bucket_prefix, "dec-reuse1-")
+        bucket2 = generate_bucket_name(test_bucket_prefix, "dec-reuse2-")
         cleanup_buckets.extend([bucket1, bucket2])
 
         result1 = create_bucket(s3_client, bucket1)
@@ -83,7 +83,7 @@ class TestWithSnapshotDecorator:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test listing snapshots with decorator."""
-        bucket_name = f"{test_bucket_prefix}dec-list-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "dec-list-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket first
@@ -101,7 +101,7 @@ class TestWithSnapshotDecorator:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test accessing objects with decorator."""
-        bucket_name = f"{test_bucket_prefix}dec-obj-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "dec-obj-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket and add data
@@ -121,7 +121,7 @@ class TestWithSnapshotDecorator:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test decorator with snapshot version."""
-        bucket_name = f"{test_bucket_prefix}dec-ver-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "dec-ver-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket
@@ -146,8 +146,8 @@ class TestForkedFromDecorator:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating fork with decorator."""
-        source_bucket = f"{test_bucket_prefix}dec-fork-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}dec-fork-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "dec-fork-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "dec-fork-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -170,8 +170,8 @@ class TestForkedFromDecorator:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test that fork is isolated from source."""
-        source_bucket = f"{test_bucket_prefix}dec-iso-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}dec-iso-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "dec-iso-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "dec-iso-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled and add data
@@ -204,9 +204,9 @@ class TestForkedFromDecorator:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating multiple forks with same decorator."""
-        source_bucket = f"{test_bucket_prefix}dec-multi-src-{int(time.time())}"
-        fork1 = f"{test_bucket_prefix}dec-multi-fork1-{int(time.time())}"
-        fork2 = f"{test_bucket_prefix}dec-multi-fork2-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "dec-multi-src-")
+        fork1 = generate_bucket_name(test_bucket_prefix, "dec-multi-fork1-")
+        fork2 = generate_bucket_name(test_bucket_prefix, "dec-multi-fork2-")
         cleanup_buckets.extend([source_bucket, fork1, fork2])
 
         # Create source bucket with snapshot enabled
@@ -234,8 +234,8 @@ class TestDecoratorCombinations:
 
     def test_snapshot_then_fork(self, s3_client, test_bucket_prefix, cleanup_buckets):
         """Test workflow: create snapshot, then fork it."""
-        source_bucket = f"{test_bucket_prefix}wf-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}wf-fork-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "wf-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "wf-fork-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source with snapshot
@@ -258,7 +258,7 @@ class TestDecoratorCombinations:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test using multiple decorated functions together."""
-        bucket_name = f"{test_bucket_prefix}multi-dec-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "multi-dec-")
         cleanup_buckets.append(bucket_name)
 
         @snapshot_enabled

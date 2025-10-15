@@ -1,9 +1,8 @@
 """Integration tests for context managers."""
 
-import time
-
 import pytest
 
+from conftest import generate_bucket_name
 from tigris_boto3_ext import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
 
 
@@ -14,7 +13,7 @@ class TestSnapshotEnabledContext:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating bucket with snapshot enabled."""
-        bucket_name = f"{test_bucket_prefix}ctx-snap-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "ctx-snap-")
         cleanup_buckets.append(bucket_name)
 
         with TigrisSnapshotEnabled(s3_client):
@@ -26,8 +25,8 @@ class TestSnapshotEnabledContext:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test that context manager can be reused."""
-        bucket1 = f"{test_bucket_prefix}reuse1-{int(time.time())}"
-        bucket2 = f"{test_bucket_prefix}reuse2-{int(time.time())}"
+        bucket1 = generate_bucket_name(test_bucket_prefix, "reuse1-")
+        bucket2 = generate_bucket_name(test_bucket_prefix, "reuse2-")
         cleanup_buckets.extend([bucket1, bucket2])
 
         ctx = TigrisSnapshotEnabled(s3_client)
@@ -48,7 +47,7 @@ class TestSnapshotEnabledContext:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test context manager cleanup with exception."""
-        bucket_name = f"{test_bucket_prefix}exc-test-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "exc-test-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket first
@@ -70,7 +69,7 @@ class TestSnapshotContext:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test listing buckets in snapshot context."""
-        bucket_name = f"{test_bucket_prefix}snap-list-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "snap-list-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket
@@ -86,7 +85,7 @@ class TestSnapshotContext:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test various operations in snapshot context."""
-        bucket_name = f"{test_bucket_prefix}snap-ops-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "snap-ops-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket and add data
@@ -112,8 +111,8 @@ class TestForkContext:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating bucket in fork context."""
-        source_bucket = f"{test_bucket_prefix}fork-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}fork-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "fork-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "fork-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -130,9 +129,9 @@ class TestForkContext:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test that fork context can be reused."""
-        source_bucket = f"{test_bucket_prefix}fork-reuse-src-{int(time.time())}"
-        fork1 = f"{test_bucket_prefix}fork-reuse1-{int(time.time())}"
-        fork2 = f"{test_bucket_prefix}fork-reuse2-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "fork-reuse-src-")
+        fork1 = generate_bucket_name(test_bucket_prefix, "fork-reuse1-")
+        fork2 = generate_bucket_name(test_bucket_prefix, "fork-reuse2-")
         cleanup_buckets.extend([source_bucket, fork1, fork2])
 
         # Create source bucket with snapshot enabled
@@ -161,8 +160,8 @@ class TestNestedContexts:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test nesting snapshot contexts."""
-        bucket1 = f"{test_bucket_prefix}nested1-{int(time.time())}"
-        bucket2 = f"{test_bucket_prefix}nested2-{int(time.time())}"
+        bucket1 = generate_bucket_name(test_bucket_prefix, "nested1-")
+        bucket2 = generate_bucket_name(test_bucket_prefix, "nested2-")
         cleanup_buckets.extend([bucket1, bucket2])
 
         with TigrisSnapshotEnabled(s3_client):
@@ -181,9 +180,9 @@ class TestNestedContexts:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test nesting different types of contexts."""
-        source_bucket = f"{test_bucket_prefix}mixed-src-{int(time.time())}"
-        snap_bucket = f"{test_bucket_prefix}mixed-snap-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}mixed-fork-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "mixed-src-")
+        snap_bucket = generate_bucket_name(test_bucket_prefix, "mixed-snap-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "mixed-fork-")
         cleanup_buckets.extend([source_bucket, snap_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -211,7 +210,7 @@ class TestContextWithDataOperations:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test putting and getting objects in snapshot context."""
-        bucket_name = f"{test_bucket_prefix}data-ctx-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "data-ctx-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket and put data
@@ -230,7 +229,7 @@ class TestContextWithDataOperations:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test multiple operations within a context."""
-        bucket_name = f"{test_bucket_prefix}multi-ops-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "multi-ops-")
         cleanup_buckets.append(bucket_name)
 
         with TigrisSnapshotEnabled(s3_client):

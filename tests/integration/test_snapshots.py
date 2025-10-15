@@ -1,6 +1,6 @@
 """Integration tests for snapshot functionality."""
 
-import time
+from conftest import generate_bucket_name
 
 import pytest
 
@@ -24,7 +24,7 @@ class TestSnapshotCreation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating a snapshot using the helper function."""
-        bucket_name = f"{test_bucket_prefix}snapshot-helper-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "snapshot-helper-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
@@ -40,7 +40,7 @@ class TestSnapshotCreation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating a snapshot using context manager."""
-        bucket_name = f"{test_bucket_prefix}snapshot-ctx-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "snapshot-ctx-")
         cleanup_buckets.append(bucket_name)
 
         with TigrisSnapshotEnabled(s3_client):
@@ -56,7 +56,7 @@ class TestSnapshotCreation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating a named snapshot and extracting version."""
-        bucket_name = f"{test_bucket_prefix}named-snap-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "named-snap-")
         snapshot_name = f"backup-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
@@ -84,7 +84,7 @@ class TestSnapshotListing:
 
     def test_list_snapshots(self, s3_client, test_bucket_prefix, cleanup_buckets):
         """Test listing snapshots for a bucket."""
-        bucket_name = f"{test_bucket_prefix}list-snap-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "list-snap-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
@@ -100,7 +100,7 @@ class TestSnapshotListing:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test listing snapshots using context manager."""
-        bucket_name = f"{test_bucket_prefix}list-ctx-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "list-ctx-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled first
@@ -120,7 +120,7 @@ class TestSnapshotDataAccess:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test getting object from snapshot using helper function."""
-        bucket_name = f"{test_bucket_prefix}get-snap-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "get-snap-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
@@ -146,7 +146,7 @@ class TestSnapshotDataAccess:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test listing objects from snapshot using helper function."""
-        bucket_name = f"{test_bucket_prefix}list-helper-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "list-helper-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled and put objects
@@ -173,7 +173,7 @@ class TestSnapshotDataAccess:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test getting object metadata from snapshot using helper function."""
-        bucket_name = f"{test_bucket_prefix}head-snap-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "head-snap-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
@@ -201,7 +201,7 @@ class TestSnapshotDataAccess:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test accessing snapshot data using context manager with version."""
-        bucket_name = f"{test_bucket_prefix}ctx-ver-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "ctx-ver-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled and put objects
@@ -231,7 +231,7 @@ class TestSnapshotHelperFunctions:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating snapshot with helper function."""
-        bucket_name = f"{test_bucket_prefix}helper-snap-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "helper-snap-")
         cleanup_buckets.append(bucket_name)
 
         result = create_snapshot_bucket(s3_client, bucket_name)
@@ -246,7 +246,7 @@ class TestSnapshotHelperFunctions:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating named snapshot and accessing version with helper."""
-        bucket_name = f"{test_bucket_prefix}helper-named-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "helper-named-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
@@ -263,7 +263,7 @@ class TestSnapshotHelperFunctions:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test listing snapshots with helper function."""
-        bucket_name = f"{test_bucket_prefix}helper-list-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "helper-list-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
@@ -278,7 +278,7 @@ class TestSnapshotHelperFunctions:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test snapshot data access helper functions."""
-        bucket_name = f"{test_bucket_prefix}helper-data-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "helper-data-")
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
@@ -317,7 +317,7 @@ class TestSnapshotHelperFunctions:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test using snapshot context with helper functions."""
-        bucket_name = f"{test_bucket_prefix}helper-ctx-{int(time.time())}"
+        bucket_name = generate_bucket_name(test_bucket_prefix, "helper-ctx-")
         bucket_name_2 = f"{bucket_name}-2"
         cleanup_buckets.extend([bucket_name, bucket_name_2])
 

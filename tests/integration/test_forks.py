@@ -1,6 +1,6 @@
 """Integration tests for fork functionality."""
 
-import time
+from conftest import generate_bucket_name
 
 import pytest
 
@@ -14,8 +14,8 @@ class TestForkCreation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test forking an existing bucket."""
-        source_bucket = f"{test_bucket_prefix}fork-source-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}fork-dest-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "fork-source-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "fork-dest-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled and add data
@@ -37,8 +37,8 @@ class TestForkCreation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test forking using context manager."""
-        source_bucket = f"{test_bucket_prefix}fork-ctx-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}fork-ctx-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "fork-ctx-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "fork-ctx-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -58,8 +58,8 @@ class TestForkCreation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test forking from a specific snapshot version."""
-        source_bucket = f"{test_bucket_prefix}fork-snap-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}fork-snap-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "fork-snap-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "fork-snap-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -84,8 +84,8 @@ class TestForkDataIsolation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test that fork initially contains source bucket data."""
-        source_bucket = f"{test_bucket_prefix}fork-iso-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}fork-iso-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "fork-iso-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "fork-iso-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled and add data
@@ -104,8 +104,8 @@ class TestForkDataIsolation:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test that modifications to fork don't affect source."""
-        source_bucket = f"{test_bucket_prefix}fork-mod-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}fork-mod-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "fork-mod-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "fork-mod-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled and create fork
@@ -133,8 +133,8 @@ class TestForkWithHelpers:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating fork with helper function."""
-        source_bucket = f"{test_bucket_prefix}helper-fork-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}helper-fork-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "helper-fork-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "helper-fork-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -153,8 +153,8 @@ class TestForkWithHelpers:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test fork context manager with helper function."""
-        source_bucket = f"{test_bucket_prefix}helper-ctx-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}helper-ctx-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "helper-ctx-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "helper-ctx-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -170,8 +170,8 @@ class TestForkWithHelpers:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test forking from snapshot version with helper."""
-        source_bucket = f"{test_bucket_prefix}helper-ver-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}helper-ver-dst-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "helper-ver-src-")
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "helper-ver-dst-")
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
         # Create source bucket with snapshot enabled
@@ -194,9 +194,9 @@ class TestMultipleForks:
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating multiple forks from the same source bucket."""
-        source_bucket = f"{test_bucket_prefix}multi-src-{int(time.time())}"
-        fork1 = f"{test_bucket_prefix}multi-fork1-{int(time.time())}"
-        fork2 = f"{test_bucket_prefix}multi-fork2-{int(time.time())}"
+        source_bucket = generate_bucket_name(test_bucket_prefix, "multi-src-")
+        fork1 = generate_bucket_name(test_bucket_prefix, "multi-fork1-")
+        fork2 = generate_bucket_name(test_bucket_prefix, "multi-fork2-")
         cleanup_buckets.extend([source_bucket, fork1, fork2])
 
         # Create source bucket with snapshot enabled

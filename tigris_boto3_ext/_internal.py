@@ -1,10 +1,10 @@
 """Internal utilities for event handler management."""
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
-# Global registry to track handlers and headers
-# Key: (client_id, event_name) -> (handler_function, reference_count, headers_dict)
-_handler_registry: dict[tuple[int, str], tuple[Callable, int, dict[str, str]]] = {}
+# Global registry to track shared handlers and active injectors
+# Key: (client_id, event_name) -> (handler_function, set of active injector IDs)
+_handler_registry: dict[tuple[int, str], tuple[Callable, set[int]]] = {}
 
 
 class HeaderInjector:
@@ -22,6 +22,7 @@ class HeaderInjector:
         self.event_name = event_name
         self.headers: dict[str, str] = {}
         self._registry_key = (id(client), event_name)
+        self._instance_id = id(self)
 
     def add_header(self, name: str, value: str) -> None:
         """Add a header to be injected."""
@@ -31,54 +32,41 @@ class HeaderInjector:
         """Set all headers to be injected."""
         self.headers = headers.copy()
 
-    def _create_handler(self, headers_dict: dict[str, str]) -> Callable:
-        """
-        Create event handler function that references shared headers dict.
-
-        Args:
-            headers_dict: Shared dictionary that will be updated by all instances
-        """
+    def _create_shared_handler(self) -> Callable:
+        """Create a shared event handler that gets headers from the first active injector."""
 
         def handler(request: Any, **kwargs: Any) -> None:
-            for name, value in headers_dict.items():
+            # Inject headers from this instance (first registered wins)
+            for name, value in self.headers.items():
                 request.headers[name] = value
 
         return handler
 
     def register(self) -> None:
-        """Register event handler with boto3, using reference counting for nested contexts."""
+        """Register event handler with boto3, sharing handler across nested contexts."""
         if self._registry_key in _handler_registry:
-            # Handler already registered, increment reference count and update headers
-            handler, ref_count, shared_headers = _handler_registry[self._registry_key]
-            shared_headers.update(self.headers)
-            _handler_registry[self._registry_key] = (
-                handler,
-                ref_count + 1,
-                shared_headers,
-            )
+            # Handler already exists, just add this instance to the active set
+            handler, active_injectors = _handler_registry[self._registry_key]
+            if self._instance_id not in active_injectors:
+                active_injectors.add(self._instance_id)
         else:
-            # First registration, create shared headers dict and handler
-            shared_headers = self.headers.copy()
-            handler = self._create_handler(shared_headers)
+            # First registration, create and register shared handler
+            handler = self._create_shared_handler()
             self.client.meta.events.register(self.event_name, handler)
-            _handler_registry[self._registry_key] = (handler, 1, shared_headers)
+            _handler_registry[self._registry_key] = (handler, {self._instance_id})
 
     def unregister(self) -> None:
-        """Unregister event handler from boto3, respecting nested contexts."""
+        """Unregister event handler from boto3, only removing when no active contexts remain."""
         if self._registry_key not in _handler_registry:
             return  # Not registered
 
-        handler, ref_count, shared_headers = _handler_registry[self._registry_key]
+        handler, active_injectors = _handler_registry[self._registry_key]
 
-        if ref_count > 1:
-            # Still have nested contexts, just decrement
-            _handler_registry[self._registry_key] = (
-                handler,
-                ref_count - 1,
-                shared_headers,
-            )
-        else:
-            # Last reference, actually unregister
+        # Remove this instance from the active set
+        active_injectors.discard(self._instance_id)
+
+        # If no more active injectors, unregister the handler
+        if not active_injectors:
             self.client.meta.events.unregister(self.event_name, handler)
             del _handler_registry[self._registry_key]
 
