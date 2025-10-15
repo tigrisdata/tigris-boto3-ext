@@ -1,7 +1,6 @@
 """Internal utilities for event handler management."""
 
-from typing import Any, Callable, Optional
-
+from typing import Any, Callable
 
 # Global registry to track handlers across all HeaderInjector instances
 # Key: (client_id, event_name) -> (handler_function, reference_count)

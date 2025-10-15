@@ -83,7 +83,12 @@ def get_snapshot_version(response: dict[str, Any]) -> Optional[str]:
         # Use version for forking or accessing snapshot data
         create_fork(s3_client, 'my-fork', 'my-bucket', snapshot_version=version)
     """
-    return response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get("x-tigris-snapshot-version")
+    version = (
+        response.get("ResponseMetadata", {})
+        .get("HTTPHeaders", {})
+        .get("x-tigris-snapshot-version")
+    )
+    return cast(Optional[str], version)
 
 
 def list_snapshots(s3_client: Any, bucket_name: str) -> dict[str, Any]:
