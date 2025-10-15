@@ -1,6 +1,6 @@
 """Internal utilities for event handler management."""
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 # Global registry to track shared handlers and active injectors
 # Key: (client_id, event_name) -> (handler_function, set of active injector IDs)

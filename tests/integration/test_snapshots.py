@@ -1,14 +1,15 @@
 """Integration tests for snapshot functionality."""
 
-from conftest import generate_bucket_name
+import time
 
 import pytest
+from .conftest import generate_bucket_name
 
 from tigris_boto3_ext import (
     TigrisSnapshot,
     TigrisSnapshotEnabled,
-    create_snapshot_bucket,
     create_snapshot,
+    create_snapshot_bucket,
     get_object_from_snapshot,
     get_snapshot_version,
     head_object_from_snapshot,

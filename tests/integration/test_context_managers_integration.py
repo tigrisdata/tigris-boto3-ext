@@ -2,7 +2,7 @@
 
 import pytest
 
-from conftest import generate_bucket_name
+from .conftest import generate_bucket_name
 from tigris_boto3_ext import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
 
 

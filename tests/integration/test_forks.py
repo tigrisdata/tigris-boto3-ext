@@ -1,6 +1,6 @@
 """Integration tests for fork functionality."""
 
-from conftest import generate_bucket_name
+from .conftest import generate_bucket_name
 
 import pytest
 
