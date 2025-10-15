@@ -6,13 +6,14 @@ Tigris-specific features like snapshots and bucket forking while maintaining ful
 boto3 compatibility.
 """
 
-from .client import TigrisS3Client
 from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
 from .decorators import forked_from, snapshot_enabled, with_snapshot
 from .helpers import (
     create_fork,
     create_snapshot,
+    create_snapshot_bucket,
     get_object_from_snapshot,
+    get_snapshot_version,
     head_object_from_snapshot,
     list_objects_from_snapshot,
     list_snapshots,
@@ -30,12 +31,12 @@ __all__ = [
     "with_snapshot",
     "forked_from",
     # Helper Functions
+    "create_snapshot_bucket",
     "create_snapshot",
+    "get_snapshot_version",
     "list_snapshots",
     "create_fork",
     "get_object_from_snapshot",
     "list_objects_from_snapshot",
     "head_object_from_snapshot",
-    # Client Wrapper
-    "TigrisS3Client",
 ]

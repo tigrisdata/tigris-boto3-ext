@@ -1,7 +1,16 @@
 """Basic usage examples for tigris-boto3-ext."""
 
 import boto3
-from tigris_boto3_ext import TigrisS3Client, TigrisSnapshotEnabled
+from tigris_boto3_ext import (
+    TigrisSnapshotEnabled,
+    create_snapshot_bucket,
+    create_fork,
+    create_snapshot,
+    get_object_from_snapshot,
+    get_snapshot_version,
+    list_objects_from_snapshot,
+    list_snapshots,
+)
 
 # Initialize boto3 S3 client
 s3 = boto3.client(
@@ -10,9 +19,6 @@ s3 = boto3.client(
     aws_access_key_id='your-access-key',
     aws_secret_access_key='your-secret-key',
 )
-
-# Wrap with TigrisS3Client for convenience
-tigris_s3 = TigrisS3Client(s3)
 
 
 def example_create_snapshot_enabled_bucket():
@@ -24,25 +30,32 @@ def example_create_snapshot_enabled_bucket():
         response = s3.create_bucket(Bucket='my-snapshot-bucket')
         print(f"Created bucket: {response}")
 
-    # Or using the wrapper
-    with tigris_s3.snapshot_enabled():
-        response = tigris_s3.create_bucket(Bucket='another-snapshot-bucket')
-        print(f"Created bucket: {response}")
+    # Or using helper function
+    response = create_snapshot_bucket(s3, 'another-snapshot-bucket')
+    print(f"Created bucket: {response}")
 
 
 def example_create_snapshot():
     """Example: Create a snapshot of a bucket."""
     print("\n=== Creating Snapshot ===")
 
+    # First, ensure bucket has snapshots enabled
+    create_snapshot_bucket(s3, 'my-snapshot-bucket')
+
     # Create a snapshot with a name
-    response = tigris_s3.create_snapshot(
+    response = create_snapshot(
+        s3,
         'my-snapshot-bucket',
         snapshot_name='daily-backup-2024-01-01'
     )
     print(f"Created snapshot: {response}")
 
+    # Extract snapshot version
+    snapshot_version = get_snapshot_version(response)
+    print(f"Snapshot version: {snapshot_version}")
+
     # Create a snapshot without a specific name
-    response = tigris_s3.create_snapshot('my-snapshot-bucket')
+    response = create_snapshot(s3, 'my-snapshot-bucket')
     print(f"Created snapshot: {response}")
 
 
@@ -50,7 +63,7 @@ def example_list_snapshots():
     """Example: List all snapshots for a bucket."""
     print("\n=== Listing Snapshots ===")
 
-    snapshots = tigris_s3.list_snapshots('my-snapshot-bucket')
+    snapshots = list_snapshots(s3, 'my-snapshot-bucket')
 
     print(f"Snapshots for 'my-snapshot-bucket':")
     for bucket in snapshots.get('Buckets', []):
@@ -62,14 +75,16 @@ def example_create_fork():
     print("\n=== Creating Forked Bucket ===")
 
     # Fork from current state of source bucket
-    response = tigris_s3.create_fork(
+    response = create_fork(
+        s3,
         'forked-bucket',
         'my-snapshot-bucket'
     )
     print(f"Created fork: {response}")
 
     # Fork from specific snapshot version
-    response = tigris_s3.create_fork(
+    response = create_fork(
+        s3,
         'forked-from-snapshot',
         'my-snapshot-bucket',
         snapshot_version='1234567890'
@@ -85,7 +100,8 @@ def example_read_from_snapshot():
 
     # Get a specific object from snapshot
     try:
-        obj = tigris_s3.get_object_from_snapshot(
+        obj = get_object_from_snapshot(
+            s3,
             'my-snapshot-bucket',
             'file.txt',
             snapshot_version
@@ -97,7 +113,8 @@ def example_read_from_snapshot():
 
     # List objects in snapshot
     try:
-        result = tigris_s3.list_objects_from_snapshot(
+        result = list_objects_from_snapshot(
+            s3,
             'my-snapshot-bucket',
             snapshot_version,
             Prefix='data/'
@@ -117,17 +134,16 @@ def example_complete_workflow():
 
     # 1. Create a snapshot-enabled bucket
     print("1. Creating snapshot-enabled bucket...")
-    with tigris_s3.snapshot_enabled():
-        tigris_s3.create_bucket(Bucket=bucket_name)
+    create_snapshot_bucket(s3, bucket_name)
 
     # 2. Add some data
     print("2. Adding data to bucket...")
-    tigris_s3.put_object(
+    s3.put_object(
         Bucket=bucket_name,
         Key='important.txt',
         Body=b'This is critical production data'
     )
-    tigris_s3.put_object(
+    s3.put_object(
         Bucket=bucket_name,
         Key='config.json',
         Body=b'{"version": "1.0", "environment": "production"}'
@@ -135,12 +151,13 @@ def example_complete_workflow():
 
     # 3. Create a snapshot
     print("3. Creating snapshot...")
-    snapshot = tigris_s3.create_snapshot(bucket_name, snapshot_name='backup-v1')
-    print(f"Snapshot created: {snapshot}")
+    snapshot_response = create_snapshot(s3, bucket_name, snapshot_name='backup-v1')
+    snapshot_version = get_snapshot_version(snapshot_response)
+    print(f"Snapshot created with version: {snapshot_version}")
 
     # 4. Modify data (simulate production changes)
     print("4. Modifying production data...")
-    tigris_s3.put_object(
+    s3.put_object(
         Bucket=bucket_name,
         Key='important.txt',
         Body=b'This is updated production data'
@@ -148,15 +165,15 @@ def example_complete_workflow():
 
     # 5. List all snapshots
     print("5. Listing all snapshots...")
-    snapshots = tigris_s3.list_snapshots(bucket_name)
+    snapshots = list_snapshots(s3, bucket_name)
     for s in snapshots.get('Buckets', []):
         print(f"  - {s['Name']}")
 
     # 6. Read from snapshot (time travel!)
     print("6. Reading original data from snapshot...")
-    snapshot_version = '1234567890'  # Use actual version from snapshot metadata
     try:
-        obj = tigris_s3.get_object_from_snapshot(
+        obj = get_object_from_snapshot(
+            s3,
             bucket_name,
             'important.txt',
             snapshot_version
@@ -169,7 +186,8 @@ def example_complete_workflow():
     # 7. Create a fork for testing
     print("7. Creating test fork from snapshot...")
     try:
-        tigris_s3.create_fork(
+        create_fork(
+            s3,
             'test-environment',
             bucket_name,
             snapshot_version

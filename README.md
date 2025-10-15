@@ -23,30 +23,6 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 pip install tigris-boto3-ext
 ```
 
-## Quick Start
-
-```python
-import boto3
-from tigris_boto3_ext import TigrisS3Client
-
-# Wrap your existing boto3 S3 client
-s3 = boto3.client('s3')
-tigris_s3 = TigrisS3Client(s3)
-
-# Create a snapshot
-tigris_s3.create_snapshot('my-bucket', snapshot_name='backup-1')
-
-# List snapshots
-snapshots = tigris_s3.list_snapshots('my-bucket')
-
-# Create a fork from a snapshot
-tigris_s3.create_fork('new-bucket', 'my-bucket', snapshot_version='12345')
-
-# All regular boto3 methods still work
-tigris_s3.list_buckets()
-tigris_s3.put_object(Bucket='my-bucket', Key='file.txt', Body=b'data')
-```
-
 ## Usage Patterns
 
 ### 1. Context Managers (Recommended)
@@ -100,7 +76,7 @@ def create_snapshot_enabled_bucket(s3_client, bucket_name):
 
 # List available snapshots
 @with_snapshot('my-bucket')
-def list_bucket_snapshots(s3_client):
+def list_snapshots(s3_client):
     return s3_client.list_buckets()
 
 # Read from specific snapshot
@@ -114,69 +90,42 @@ def create_my_fork(s3_client, new_bucket):
 
 # Use the decorated functions
 create_snapshot_enabled_bucket(s3_client, 'my-bucket')
-snapshots = list_bucket_snapshots(s3_client)
+snapshots = list_snapshots(s3_client)
 obj = read_from_snapshot(s3_client, 'file.txt')
 create_my_fork(s3_client, 'my-fork')
 ```
-
-> **Note**: `from_snapshot` is still available as an alias for `with_snapshot` for backwards compatibility.
 
 ### 3. Helper Functions
 
 ```python
 from tigris_boto3_ext import (
+    create_snapshot_bucket,
     create_snapshot,
     list_snapshots,
     create_fork,
     get_object_from_snapshot,
+    get_snapshot_version,
     list_objects_from_snapshot,
     head_object_from_snapshot,
 )
 
-# Create a snapshot
-create_snapshot(s3_client, 'my-bucket', snapshot_name='backup-1')
+# Create snapshot-enabled bucket
+create_snapshot_bucket(s3_client, 'my-bucket')
+
+# Create snapshots
+result = create_snapshot(s3_client, 'my-bucket', snapshot_name='backup-1')
+version = get_snapshot_version(result)
 
 # List snapshots
 snapshots = list_snapshots(s3_client, 'my-bucket')
 
-# Create a fork
-create_fork(s3_client, 'new-bucket', 'source-bucket', snapshot_version='12345')
+# Create forks
+create_fork(s3_client, 'new-bucket', 'source-bucket', snapshot_version=version)
 
-# Read from snapshot
-obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
+# Access snapshot data
+obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
 objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='data/')
 metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
-```
-
-### 4. Client Wrapper
-
-```python
-from tigris_boto3_ext import TigrisS3Client
-
-tigris_s3 = TigrisS3Client(s3_client)
-
-# Tigris-specific methods
-tigris_s3.create_snapshot('my-bucket', snapshot_name='backup-1')
-snapshots = tigris_s3.list_snapshots('my-bucket')
-tigris_s3.create_fork('new-bucket', 'source-bucket')
-
-# Access to snapshot objects
-obj = tigris_s3.get_object_from_snapshot('my-bucket', 'file.txt', '12345')
-objects = tigris_s3.list_objects_from_snapshot('my-bucket', '12345')
-
-# Context managers via wrapper
-with tigris_s3.snapshot_enabled():
-    tigris_s3.create_bucket(Bucket='my-bucket')
-
-with tigris_s3.snapshot_context('my-bucket', '12345'):
-    obj = tigris_s3.get_object(Bucket='my-bucket', Key='file.txt')
-
-with tigris_s3.fork_context('source-bucket'):
-    tigris_s3.create_bucket(Bucket='forked-bucket')
-
-# All regular boto3 methods work
-tigris_s3.list_buckets()
-tigris_s3.put_object(Bucket='my-bucket', Key='file.txt', Body=b'data')
 ```
 
 ## Complete Examples
@@ -185,29 +134,33 @@ tigris_s3.put_object(Bucket='my-bucket', Key='file.txt', Body=b'data')
 
 ```python
 import boto3
-from tigris_boto3_ext import TigrisS3Client
+from tigris_boto3_ext import (
+    create_snapshot_bucket,
+    create_snapshot,
+    list_snapshots,
+    create_fork,
+    get_snapshot_version,
+)
 
 s3 = boto3.client('s3')
-tigris_s3 = TigrisS3Client(s3)
 
 # Create a snapshot-enabled bucket
-with tigris_s3.snapshot_enabled():
-    tigris_s3.create_bucket(Bucket='production-data')
+create_snapshot_bucket(s3, 'production-data')
 
 # Add some data
-tigris_s3.put_object(Bucket='production-data', Key='important.txt', Body=b'critical data')
+s3.put_object(Bucket='production-data', Key='important.txt', Body=b'critical data')
 
 # Create a snapshot
-tigris_s3.create_snapshot('production-data', snapshot_name='daily-backup')
+snapshot_result = create_snapshot(s3, 'production-data', snapshot_name='daily-backup')
+snapshot_version = get_snapshot_version(snapshot_result)
 
 # List all snapshots
-snapshots = tigris_s3.list_snapshots('production-data')
+snapshots = list_snapshots(s3, 'production-data')
 for bucket in snapshots.get('Buckets', []):
     print(f"Snapshot: {bucket['Name']}")
 
 # Restore from snapshot by creating a fork
-snapshot_version = '12345'  # Get from snapshot metadata
-tigris_s3.create_fork('restored-data', 'production-data', snapshot_version)
+create_fork(s3, 'restored-data', 'production-data', snapshot_version=snapshot_version)
 ```
 
 ### Example 2: Testing with Snapshot Isolation
@@ -219,16 +172,16 @@ from tigris_boto3_ext import create_fork, create_snapshot
 s3 = boto3.client('s3')
 
 # Create a snapshot of production data
-snapshot_result = create_snapshot(s3, 'production-db', snapshot_name='test-snapshot')
+snapshot_result = create_snapshot(s3, 'production-data', snapshot_name='test-snapshot')
 
 # Fork for testing (isolated copy)
-create_fork(s3, 'test-db', 'production-db', snapshot_version='12345')
+create_fork(s3, 'test-data', 'production-data', snapshot_version='12345')
 
 # Run tests against test-db without affecting production
-s3.put_object(Bucket='test-db', Key='test-data.txt', Body=b'test data')
+s3.put_object(Bucket='test-data', Key='test-data.txt', Body=b'test data')
 
 # Clean up test bucket when done
-s3.delete_bucket(Bucket='test-db')
+s3.delete_bucket(Bucket='test-data')
 ```
 
 ### Example 3: Time-Travel Queries
@@ -296,28 +249,13 @@ pip install -e ".[dev]"
 
 ### Running Tests
 
-#### Unit Tests
-
-```bash
-# Run all unit tests with coverage
-uv run pytest tests/unit/ --cov=tigris_boto3_ext --cov-report=html
-
-# Run specific test file
-uv run pytest tests/unit/test_decorators.py -v
-
-# Run with type checking, linting, and formatting checks
-uv run mypy tigris_boto3_ext
-uv run ruff check tigris_boto3_ext
-uv run ruff format --check tigris_boto3_ext
-```
-
 #### Integration Tests
 
 Integration tests run against a real Tigris S3 service. See [`tests/integration/README.md`](tests/integration/README.md) for detailed setup instructions.
 
 ```bash
 # Set up environment variables
-export AWS_ENDPOINT_URL_S3="https://fly.storage.tigris.dev"
+export AWS_ENDPOINT_URL_S3="https://t3.storage.dev"
 export AWS_ACCESS_KEY_ID="your-access-key"
 export AWS_SECRET_ACCESS_KEY="your-secret-key"
 

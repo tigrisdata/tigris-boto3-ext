@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from tigris_boto3_ext import TigrisFork, TigrisS3Client, create_fork, create_snapshot
+from tigris_boto3_ext import TigrisFork, TigrisSnapshotEnabled, create_snapshot_bucket, create_fork, create_snapshot, get_snapshot_version
 
 
 class TestForkCreation:
@@ -18,8 +18,8 @@ class TestForkCreation:
         fork_bucket = f"{test_bucket_prefix}fork-dest-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source bucket with data
-        create_snapshot(s3_client, source_bucket)
+        # Create source bucket with snapshot enabled and add data
+        create_snapshot_bucket(s3_client, source_bucket)
         s3_client.put_object(
             Bucket=source_bucket, Key="file.txt", Body=b"Original data"
         )
@@ -41,8 +41,8 @@ class TestForkCreation:
         fork_bucket = f"{test_bucket_prefix}fork-ctx-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source bucket
-        create_snapshot(s3_client, source_bucket)
+        # Create source bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, source_bucket)
 
         # Create fork using context manager
         with TigrisFork(s3_client, source_bucket):
@@ -62,13 +62,17 @@ class TestForkCreation:
         fork_bucket = f"{test_bucket_prefix}fork-snap-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source bucket
-        create_snapshot(s3_client, source_bucket, snapshot_name="v1")
+        # Create source bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, source_bucket)
+
+        # Create a named snapshot and get version
+        snapshot_response = create_snapshot(s3_client, source_bucket, snapshot_name="v1")
+        snapshot_version = get_snapshot_version(snapshot_response)
+
         s3_client.put_object(Bucket=source_bucket, Key="data.txt", Body=b"Version 1")
 
-        # Note: In real scenario, we'd get snapshot version from Tigris
-        # For now, test the API without actual version
-        result = create_fork(s3_client, fork_bucket, source_bucket)
+        # Fork from the specific snapshot version
+        result = create_fork(s3_client, fork_bucket, source_bucket, snapshot_version=snapshot_version)
 
         assert "Location" in result
 
@@ -84,8 +88,8 @@ class TestForkDataIsolation:
         fork_bucket = f"{test_bucket_prefix}fork-iso-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source with data
-        create_snapshot(s3_client, source_bucket)
+        # Create source bucket with snapshot enabled and add data
+        create_snapshot_bucket(s3_client, source_bucket)
         test_key = "shared-file.txt"
         test_data = b"Shared data"
         s3_client.put_object(Bucket=source_bucket, Key=test_key, Body=test_data)
@@ -104,8 +108,8 @@ class TestForkDataIsolation:
         fork_bucket = f"{test_bucket_prefix}fork-mod-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source and fork
-        create_snapshot(s3_client, source_bucket)
+        # Create source bucket with snapshot enabled and create fork
+        create_snapshot_bucket(s3_client, source_bucket)
         create_fork(s3_client, fork_bucket, source_bucket)
 
         # Add data to fork
@@ -122,63 +126,63 @@ class TestForkDataIsolation:
         assert "fork-only.txt" not in source_keys
 
 
-class TestForkWithTigrisClient:
-    """Test fork operations using TigrisS3Client."""
+class TestForkWithHelpers:
+    """Test fork operations using helper functions."""
 
-    def test_create_fork_with_client(
+    def test_create_fork_with_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test creating fork with TigrisS3Client."""
-        client = TigrisS3Client(s3_client)
-        source_bucket = f"{test_bucket_prefix}client-fork-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}client-fork-dst-{int(time.time())}"
+        """Test creating fork with helper function."""
+        source_bucket = f"{test_bucket_prefix}helper-fork-src-{int(time.time())}"
+        fork_bucket = f"{test_bucket_prefix}helper-fork-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source
-        client.create_snapshot(source_bucket)
+        # Create source bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, source_bucket)
 
         # Create fork
-        result = client.create_fork(fork_bucket, source_bucket)
+        result = create_fork(s3_client, fork_bucket, source_bucket)
 
         assert "Location" in result
         # Verify fork exists
-        response = client.list_buckets()
+        response = s3_client.list_buckets()
         bucket_names = [b["Name"] for b in response.get("Buckets", [])]
         assert fork_bucket in bucket_names
 
-    def test_fork_context_with_client(
+    def test_fork_context_with_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test fork context manager with TigrisS3Client."""
-        client = TigrisS3Client(s3_client)
-        source_bucket = f"{test_bucket_prefix}client-ctx-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}client-ctx-dst-{int(time.time())}"
+        """Test fork context manager with helper function."""
+        source_bucket = f"{test_bucket_prefix}helper-ctx-src-{int(time.time())}"
+        fork_bucket = f"{test_bucket_prefix}helper-ctx-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source
-        client.create_snapshot(source_bucket)
+        # Create source bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, source_bucket)
 
         # Use fork context
-        with client.fork_context(source_bucket):
-            result = client.create_bucket(Bucket=fork_bucket)
+        with TigrisFork(s3_client, source_bucket):
+            result = s3_client.create_bucket(Bucket=fork_bucket)
 
         assert "Location" in result
 
-    def test_fork_with_snapshot_version_client(
+    def test_fork_with_snapshot_version_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test forking from snapshot version with client."""
-        client = TigrisS3Client(s3_client)
-        source_bucket = f"{test_bucket_prefix}client-ver-src-{int(time.time())}"
-        fork_bucket = f"{test_bucket_prefix}client-ver-dst-{int(time.time())}"
+        """Test forking from snapshot version with helper."""
+        source_bucket = f"{test_bucket_prefix}helper-ver-src-{int(time.time())}"
+        fork_bucket = f"{test_bucket_prefix}helper-ver-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source with snapshot
-        client.create_snapshot(source_bucket, snapshot_name="backup")
+        # Create source bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, source_bucket)
 
-        # Note: snapshot_version would come from Tigris in real usage
-        # Test the API without actual version
-        result = client.create_fork(fork_bucket, source_bucket)
+        # Create a snapshot and get version
+        snapshot_response = create_snapshot(s3_client, source_bucket, snapshot_name="backup")
+        snapshot_version = get_snapshot_version(snapshot_response)
+
+        # Fork from the specific snapshot version
+        result = create_fork(s3_client, fork_bucket, source_bucket, snapshot_version=snapshot_version)
 
         assert "Location" in result
 
@@ -195,8 +199,8 @@ class TestMultipleForks:
         fork2 = f"{test_bucket_prefix}multi-fork2-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork1, fork2])
 
-        # Create source
-        create_snapshot(s3_client, source_bucket)
+        # Create source bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, source_bucket)
         s3_client.put_object(Bucket=source_bucket, Key="base.txt", Body=b"Base data")
 
         # Create first fork

@@ -5,11 +5,14 @@ import time
 import pytest
 
 from tigris_boto3_ext import (
-    TigrisS3Client,
     TigrisSnapshot,
     TigrisSnapshotEnabled,
+    create_snapshot_bucket,
     create_snapshot,
     get_object_from_snapshot,
+    get_snapshot_version,
+    head_object_from_snapshot,
+    list_objects_from_snapshot,
     list_snapshots,
 )
 
@@ -25,7 +28,7 @@ class TestSnapshotCreation:
         cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
-        result = create_snapshot(s3_client, bucket_name)
+        result = create_snapshot_bucket(s3_client, bucket_name)
 
         assert "Location" in result
         # Verify bucket exists
@@ -52,14 +55,24 @@ class TestSnapshotCreation:
     def test_create_snapshot_with_name(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test creating a named snapshot."""
+        """Test creating a named snapshot and extracting version."""
         bucket_name = f"{test_bucket_prefix}named-snap-{int(time.time())}"
         snapshot_name = f"backup-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
+        # Create bucket with snapshot enabled first
+        create_snapshot_bucket(s3_client, bucket_name)
+
+        # Create a named snapshot
         result = create_snapshot(s3_client, bucket_name, snapshot_name=snapshot_name)
 
-        assert "Location" in result
+        assert "ResponseMetadata" in result
+
+        # Test get_snapshot_version helper
+        snapshot_version = get_snapshot_version(result)
+        assert snapshot_version is not None
+        assert isinstance(snapshot_version, str)
+
         # Verify bucket exists
         response = s3_client.list_buckets()
         bucket_names = [b["Name"] for b in response.get("Buckets", [])]
@@ -74,8 +87,8 @@ class TestSnapshotListing:
         bucket_name = f"{test_bucket_prefix}list-snap-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
-        # Create bucket with snapshot
-        create_snapshot(s3_client, bucket_name)
+        # Create bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, bucket_name)
 
         # List snapshots
         result = list_snapshots(s3_client, bucket_name)
@@ -90,8 +103,8 @@ class TestSnapshotListing:
         bucket_name = f"{test_bucket_prefix}list-ctx-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
-        # Create bucket first
-        create_snapshot(s3_client, bucket_name)
+        # Create bucket with snapshot enabled first
+        create_snapshot_bucket(s3_client, bucket_name)
 
         # List snapshots using context
         with TigrisSnapshot(s3_client, bucket_name):
@@ -103,44 +116,52 @@ class TestSnapshotListing:
 class TestSnapshotDataAccess:
     """Test accessing data from snapshots."""
 
-    def test_put_and_get_object_from_snapshot(
+    def test_get_object_from_snapshot_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test putting object and retrieving from snapshot."""
-        bucket_name = f"{test_bucket_prefix}data-snap-{int(time.time())}"
+        """Test getting object from snapshot using helper function."""
+        bucket_name = f"{test_bucket_prefix}get-snap-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
-        # Create bucket
-        create_snapshot(s3_client, bucket_name)
+        # Create bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, bucket_name)
 
         # Put an object
         test_key = "test-file.txt"
         test_data = b"Test data for snapshot"
         s3_client.put_object(Bucket=bucket_name, Key=test_key, Body=test_data)
 
-        # Note: Getting object from snapshot requires snapshot version
-        # This test demonstrates the API but actual snapshot version
-        # would come from Tigris response
-        # For now, just verify we can put/get objects normally
-        response = s3_client.get_object(Bucket=bucket_name, Key=test_key)
+        # Create a snapshot and get version
+        snapshot_response = create_snapshot(s3_client, bucket_name, snapshot_name="v1")
+        snapshot_version = get_snapshot_version(snapshot_response)
+
+        # Get object from snapshot using helper
+        response = get_object_from_snapshot(
+            s3_client, bucket_name, test_key, snapshot_version
+        )
         retrieved_data = response["Body"].read()
         assert retrieved_data == test_data
 
-    def test_list_objects_from_snapshot_context(
+    def test_list_objects_from_snapshot_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test listing objects using snapshot context."""
-        bucket_name = f"{test_bucket_prefix}list-obj-{int(time.time())}"
+        """Test listing objects from snapshot using helper function."""
+        bucket_name = f"{test_bucket_prefix}list-helper-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
-        # Create bucket and put objects
-        create_snapshot(s3_client, bucket_name)
+        # Create bucket with snapshot enabled and put objects
+        create_snapshot_bucket(s3_client, bucket_name)
         s3_client.put_object(Bucket=bucket_name, Key="file1.txt", Body=b"data1")
         s3_client.put_object(Bucket=bucket_name, Key="file2.txt", Body=b"data2")
 
-        # List objects
-        with TigrisSnapshot(s3_client, bucket_name):
-            response = s3_client.list_objects_v2(Bucket=bucket_name)
+        # Create a snapshot and get version
+        snapshot_response = create_snapshot(s3_client, bucket_name)
+        snapshot_version = get_snapshot_version(snapshot_response)
+
+        # List objects from snapshot using helper
+        response = list_objects_from_snapshot(
+            s3_client, bucket_name, snapshot_version
+        )
 
         assert "Contents" in response
         assert len(response["Contents"]) == 2
@@ -148,58 +169,163 @@ class TestSnapshotDataAccess:
         assert "file1.txt" in keys
         assert "file2.txt" in keys
 
-
-class TestSnapshotWithTigrisClient:
-    """Test snapshot operations using TigrisS3Client."""
-
-    def test_create_snapshot_with_client(
+    def test_head_object_from_snapshot_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test creating snapshot with TigrisS3Client."""
-        client = TigrisS3Client(s3_client)
-        bucket_name = f"{test_bucket_prefix}client-snap-{int(time.time())}"
+        """Test getting object metadata from snapshot using helper function."""
+        bucket_name = f"{test_bucket_prefix}head-snap-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
-        result = client.create_snapshot(bucket_name)
+        # Create bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, bucket_name)
+
+        # Put an object
+        test_key = "metadata-test.txt"
+        test_data = b"Test metadata"
+        s3_client.put_object(Bucket=bucket_name, Key=test_key, Body=test_data)
+
+        # Create a snapshot and get version
+        snapshot_response = create_snapshot(s3_client, bucket_name)
+        snapshot_version = get_snapshot_version(snapshot_response)
+
+        # Get object metadata from snapshot using helper
+        response = head_object_from_snapshot(
+            s3_client, bucket_name, test_key, snapshot_version
+        )
+
+        assert "ContentLength" in response
+        assert response["ContentLength"] == len(test_data)
+        assert "ETag" in response
+
+    def test_snapshot_context_with_version(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """Test accessing snapshot data using context manager with version."""
+        bucket_name = f"{test_bucket_prefix}ctx-ver-{int(time.time())}"
+        cleanup_buckets.append(bucket_name)
+
+        # Create bucket with snapshot enabled and put objects
+        create_snapshot_bucket(s3_client, bucket_name)
+        s3_client.put_object(Bucket=bucket_name, Key="v1.txt", Body=b"Version 1")
+
+        # Create snapshot
+        snapshot_response = create_snapshot(s3_client, bucket_name, snapshot_name="snap1")
+        snapshot_version = get_snapshot_version(snapshot_response)
+
+        # Add more data after snapshot
+        s3_client.put_object(Bucket=bucket_name, Key="v2.txt", Body=b"Version 2")
+
+        # Access snapshot using context manager with version
+        with TigrisSnapshot(s3_client, bucket_name, snapshot_version):
+            response = s3_client.list_objects_v2(Bucket=bucket_name)
+
+        # Snapshot should only have v1.txt, not v2.txt
+        keys = [obj["Key"] for obj in response.get("Contents", [])]
+        assert "v1.txt" in keys
+
+
+class TestSnapshotHelperFunctions:
+    """Test snapshot helper functions comprehensively."""
+
+    def test_create_snapshot_helper(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """Test creating snapshot with helper function."""
+        bucket_name = f"{test_bucket_prefix}helper-snap-{int(time.time())}"
+        cleanup_buckets.append(bucket_name)
+
+        result = create_snapshot_bucket(s3_client, bucket_name)
 
         assert "Location" in result
         # Verify bucket exists
-        response = client.list_buckets()
+        response = s3_client.list_buckets()
         bucket_names = [b["Name"] for b in response.get("Buckets", [])]
         assert bucket_name in bucket_names
 
-    def test_list_snapshots_with_client(
+    def test_create_named_snapshot_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test listing snapshots with TigrisS3Client."""
-        client = TigrisS3Client(s3_client)
-        bucket_name = f"{test_bucket_prefix}client-list-{int(time.time())}"
+        """Test creating named snapshot and accessing version with helper."""
+        bucket_name = f"{test_bucket_prefix}helper-named-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
-        # Create bucket
-        client.create_snapshot(bucket_name)
+        # Create bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, bucket_name)
+
+        # Create a named snapshot
+        snapshot_response = create_snapshot(s3_client, bucket_name, snapshot_name="backup1")
+        snapshot_version = get_snapshot_version(snapshot_response)
+
+        assert snapshot_version is not None
+        assert isinstance(snapshot_version, str)
+
+    def test_list_snapshots_helper(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """Test listing snapshots with helper function."""
+        bucket_name = f"{test_bucket_prefix}helper-list-{int(time.time())}"
+        cleanup_buckets.append(bucket_name)
+
+        # Create bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, bucket_name)
 
         # List snapshots
-        result = client.list_snapshots(bucket_name)
+        result = list_snapshots(s3_client, bucket_name)
 
         assert "Buckets" in result
 
-    def test_snapshot_context_with_client(
+    def test_snapshot_data_operations_helpers(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        """Test using snapshot context with TigrisS3Client."""
-        client = TigrisS3Client(s3_client)
-        bucket_name = f"{test_bucket_prefix}client-ctx-{int(time.time())}"
+        """Test snapshot data access helper functions."""
+        bucket_name = f"{test_bucket_prefix}helper-data-{int(time.time())}"
         cleanup_buckets.append(bucket_name)
 
-        # Create bucket
-        client.create_snapshot(bucket_name)
+        # Create bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, bucket_name)
 
-        # Use context manager
-        with client.snapshot_enabled():
-            result = client.create_bucket(
-                Bucket=f"{bucket_name}-2-{int(time.time())}"
-            )
-            cleanup_buckets.append(f"{bucket_name}-2-{int(time.time())}")
+        # Add data
+        test_key = "helper-test.txt"
+        test_data = b"Helper test data"
+        s3_client.put_object(Bucket=bucket_name, Key=test_key, Body=test_data)
+
+        # Create snapshot
+        snapshot_response = create_snapshot(s3_client, bucket_name)
+        snapshot_version = get_snapshot_version(snapshot_response)
+
+        # Test get_object_from_snapshot
+        obj_response = get_object_from_snapshot(
+            s3_client, bucket_name, test_key, snapshot_version
+        )
+        retrieved_data = obj_response["Body"].read()
+        assert retrieved_data == test_data
+
+        # Test list_objects_from_snapshot
+        list_response = list_objects_from_snapshot(s3_client, bucket_name, snapshot_version)
+        assert "Contents" in list_response
+        keys = [obj["Key"] for obj in list_response["Contents"]]
+        assert test_key in keys
+
+        # Test head_object_from_snapshot
+        head_response = head_object_from_snapshot(
+            s3_client, bucket_name, test_key, snapshot_version
+        )
+        assert "ContentLength" in head_response
+        assert head_response["ContentLength"] == len(test_data)
+
+    def test_snapshot_context_with_helpers(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """Test using snapshot context with helper functions."""
+        bucket_name = f"{test_bucket_prefix}helper-ctx-{int(time.time())}"
+        bucket_name_2 = f"{bucket_name}-2"
+        cleanup_buckets.extend([bucket_name, bucket_name_2])
+
+        # Create first bucket with snapshot enabled
+        create_snapshot_bucket(s3_client, bucket_name)
+
+        # Use context manager to create another snapshot-enabled bucket
+        with TigrisSnapshotEnabled(s3_client):
+            result = s3_client.create_bucket(Bucket=bucket_name_2)
 
         assert "Location" in result

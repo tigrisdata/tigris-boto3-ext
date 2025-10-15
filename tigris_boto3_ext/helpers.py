@@ -3,7 +3,28 @@
 from typing import Any, Optional, cast
 
 from ._internal import create_header_injector
-from .context_managers import TigrisFork, TigrisSnapshot
+from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
+
+
+def create_snapshot_bucket(
+    s3_client: Any,
+    bucket_name: str,
+) -> dict[str, Any]:
+    """
+    Create a bucket with snapshot support enabled.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket to create
+
+    Returns:
+        Response from create_bucket operation
+
+    Usage:
+        result = create_snapshot_bucket(s3_client, 'my-bucket')
+    """
+    with TigrisSnapshotEnabled(s3_client):
+        return cast("dict[str, Any]", s3_client.create_bucket(Bucket=bucket_name))
 
 
 def create_snapshot(
@@ -44,6 +65,25 @@ def create_snapshot(
         return cast("dict[str, Any]", s3_client.create_bucket(Bucket=bucket_name))
     finally:
         injector.unregister()
+
+
+def get_snapshot_version(response: dict[str, Any]) -> Optional[str]:
+    """
+    Extract snapshot version from a create_snapshot response.
+
+    Args:
+        response: Response from create_snapshot operation
+
+    Returns:
+        Snapshot version ID, or None if not found
+
+    Usage:
+        result = create_snapshot(s3_client, 'my-bucket', snapshot_name='backup')
+        version = get_snapshot_version(result)
+        # Use version for forking or accessing snapshot data
+        create_fork(s3_client, 'my-fork', 'my-bucket', snapshot_version=version)
+    """
+    return response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get("x-tigris-snapshot-version")
 
 
 def list_snapshots(s3_client: Any, bucket_name: str) -> dict[str, Any]:

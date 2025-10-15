@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from tigris_boto3_ext import forked_from, snapshot_enabled, with_snapshot
+from tigris_boto3_ext import TigrisSnapshotEnabled, forked_from, snapshot_enabled, with_snapshot
 
 
 class TestSnapshotEnabledDecorator:
@@ -150,8 +150,9 @@ class TestForkedFromDecorator:
         fork_bucket = f"{test_bucket_prefix}dec-fork-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source
-        s3_client.create_bucket(Bucket=source_bucket)
+        # Create source bucket with snapshot enabled
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=source_bucket)
 
         @forked_from(source_bucket)
         def create_fork(client, new_bucket_name):
@@ -173,8 +174,9 @@ class TestForkedFromDecorator:
         fork_bucket = f"{test_bucket_prefix}dec-iso-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source with data
-        s3_client.create_bucket(Bucket=source_bucket)
+        # Create source bucket with snapshot enabled and add data
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=source_bucket)
         s3_client.put_object(
             Bucket=source_bucket, Key="source.txt", Body=b"Source data"
         )
@@ -207,8 +209,9 @@ class TestForkedFromDecorator:
         fork2 = f"{test_bucket_prefix}dec-multi-fork2-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork1, fork2])
 
-        # Create source
-        s3_client.create_bucket(Bucket=source_bucket)
+        # Create source bucket with snapshot enabled
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=source_bucket)
 
         @forked_from(source_bucket)
         def create_fork(client, fork_name):
@@ -263,7 +266,6 @@ class TestDecoratorCombinations:
             client.create_bucket(Bucket=name)
             return name
 
-        @with_snapshot(bucket_name)
         def verify_bucket(client, name):
             response = client.list_buckets()
             bucket_names = [b["Name"] for b in response.get("Buckets", [])]

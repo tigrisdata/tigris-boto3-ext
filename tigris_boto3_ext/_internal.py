@@ -3,8 +3,13 @@
 from typing import Any, Callable, Optional
 
 
+# Global registry to track handlers across all HeaderInjector instances
+# Key: (client_id, event_name) -> (handler_function, reference_count)
+_handler_registry: dict[tuple[int, str], tuple[Callable, int]] = {}
+
+
 class HeaderInjector:
-    """Manages header injection via boto3 event system."""
+    """Manages header injection via boto3 event system with support for nesting."""
 
     def __init__(self, client: Any, event_name: str):
         """
@@ -17,7 +22,7 @@ class HeaderInjector:
         self.client = client
         self.event_name = event_name
         self.headers: dict[str, str] = {}
-        self._handler_id: Optional[int] = None
+        self._registry_key = (id(client), event_name)
 
     def add_header(self, name: str, value: str) -> None:
         """Add a header to be injected."""
@@ -37,23 +42,31 @@ class HeaderInjector:
         return handler
 
     def register(self) -> None:
-        """Register event handler with boto3."""
-        if self._handler_id is not None:
-            return  # Already registered
-
-        handler = self._create_handler()
-        self.client.meta.events.register(self.event_name, handler)
-        self._handler_id = id(handler)
+        """Register event handler with boto3, using reference counting for nested contexts."""
+        if self._registry_key in _handler_registry:
+            # Handler already registered, increment reference count
+            handler, ref_count = _handler_registry[self._registry_key]
+            _handler_registry[self._registry_key] = (handler, ref_count + 1)
+        else:
+            # First registration, create and register handler
+            handler = self._create_handler()
+            self.client.meta.events.register(self.event_name, handler)
+            _handler_registry[self._registry_key] = (handler, 1)
 
     def unregister(self) -> None:
-        """Unregister event handler from boto3."""
-        if self._handler_id is None:
+        """Unregister event handler from boto3, respecting nested contexts."""
+        if self._registry_key not in _handler_registry:
             return  # Not registered
 
-        # Note: boto3 doesn't provide easy handler removal by ID
-        # We need to unregister all handlers for this event and re-register others
-        # For simplicity, we'll rely on context manager lifecycle
-        self._handler_id = None
+        handler, ref_count = _handler_registry[self._registry_key]
+
+        if ref_count > 1:
+            # Still have nested contexts, just decrement
+            _handler_registry[self._registry_key] = (handler, ref_count - 1)
+        else:
+            # Last reference, actually unregister
+            self.client.meta.events.unregister(self.event_name, handler)
+            del _handler_registry[self._registry_key]
 
 
 def create_header_injector(

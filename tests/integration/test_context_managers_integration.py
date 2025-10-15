@@ -20,7 +20,7 @@ class TestSnapshotEnabledContext:
         with TigrisSnapshotEnabled(s3_client):
             result = s3_client.create_bucket(Bucket=bucket_name)
 
-        assert "Location" in result
+        assert "Location" in result and result["Location"] == f'/{bucket_name}'
 
     def test_snapshot_enabled_reusable(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -116,8 +116,9 @@ class TestForkContext:
         fork_bucket = f"{test_bucket_prefix}fork-dst-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork_bucket])
 
-        # Create source
-        s3_client.create_bucket(Bucket=source_bucket)
+        # Create source bucket with snapshot enabled
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=source_bucket)
 
         # Create fork in context
         with TigrisFork(s3_client, source_bucket):
@@ -134,8 +135,9 @@ class TestForkContext:
         fork2 = f"{test_bucket_prefix}fork-reuse2-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, fork1, fork2])
 
-        # Create source
-        s3_client.create_bucket(Bucket=source_bucket)
+        # Create source bucket with snapshot enabled
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=source_bucket)
 
         ctx = TigrisFork(s3_client, source_bucket)
 
@@ -184,8 +186,9 @@ class TestNestedContexts:
         fork_bucket = f"{test_bucket_prefix}mixed-fork-{int(time.time())}"
         cleanup_buckets.extend([source_bucket, snap_bucket, fork_bucket])
 
-        # Create source bucket
-        s3_client.create_bucket(Bucket=source_bucket)
+        # Create source bucket with snapshot enabled
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=source_bucket)
 
         # Use nested contexts
         with TigrisSnapshotEnabled(s3_client):
