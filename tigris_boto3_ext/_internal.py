@@ -2,6 +2,8 @@
 
 from typing import Any, Callable
 
+from mypy_boto3_s3.client import S3Client
+
 # Global registry to track shared handlers and active injectors
 # Key: (client_id, event_name) -> (handler_function, set of active injector IDs)
 _handler_registry: dict[tuple[int, str], tuple[Callable, set[int]]] = {}
@@ -10,7 +12,7 @@ _handler_registry: dict[tuple[int, str], tuple[Callable, set[int]]] = {}
 class HeaderInjector:
     """Manages header injection via boto3 event system with support for nesting."""
 
-    def __init__(self, client: Any, event_name: str):
+    def __init__(self, client: S3Client, event_name: str):
         """
         Initialize header injector.
 
@@ -72,7 +74,7 @@ class HeaderInjector:
 
 
 def create_header_injector(
-    client: Any,
+    client: S3Client,
     operation: str,
     headers: dict[str, str],
 ) -> HeaderInjector:
@@ -94,7 +96,7 @@ def create_header_injector(
 
 
 def create_multi_operation_injector(
-    client: Any,
+    client: S3Client,
     operations: list[str],
     headers: dict[str, str],
 ) -> list[HeaderInjector]:

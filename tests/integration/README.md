@@ -15,7 +15,7 @@ This directory contains integration tests for `tigris-boto3-ext` that test again
 Set the following environment variables:
 
 ```bash
-export AWS_ENDPOINT_URL_S3="https://fly.storage.tigris.dev"
+export AWS_ENDPOINT_URL_S3="https://t3.storage.dev"
 export AWS_ACCESS_KEY_ID="your-access-key-id"
 export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
 ```
@@ -23,7 +23,7 @@ export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
 Alternatively, you can use `AWS_ENDPOINT_URL` instead of `AWS_ENDPOINT_URL_S3`:
 
 ```bash
-export AWS_ENDPOINT_URL="https://fly.storage.tigris.dev"
+export AWS_ENDPOINT_URL="https://t3.storage.dev"
 ```
 
 ### Using a `.env` File
@@ -31,7 +31,7 @@ export AWS_ENDPOINT_URL="https://fly.storage.tigris.dev"
 Create a `.env` file in the project root:
 
 ```
-AWS_ENDPOINT_URL_S3=https://fly.storage.tigris.dev
+AWS_ENDPOINT_URL_S3=https://t3.storage.dev
 AWS_ACCESS_KEY_ID=your-access-key-id
 AWS_SECRET_ACCESS_KEY=your-secret-access-key
 ```
@@ -94,6 +94,7 @@ uv run pytest tests/integration/ -vv -s
 ## Test Structure
 
 - **`conftest.py`**: Shared fixtures for all integration tests
+
   - `tigris_endpoint`: Gets Tigris endpoint from environment
   - `aws_credentials`: Gets AWS credentials from environment
   - `s3_client`: Creates a real boto3 S3 client

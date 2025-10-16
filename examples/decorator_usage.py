@@ -6,7 +6,7 @@ from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from
 # Initialize boto3 S3 client
 s3 = boto3.client(
     's3',
-    endpoint_url='https://fly.storage.tigris.dev',
+    endpoint_url='https://t3.storage.dev',
     aws_access_key_id='your-access-key',
     aws_secret_access_key='your-secret-key',
 )

@@ -2,6 +2,8 @@
 
 from typing import Any, Optional
 
+from mypy_boto3_s3.client import S3Client
+
 from ._internal import create_header_injector, create_multi_operation_injector
 
 
@@ -14,7 +16,7 @@ class TigrisSnapshotEnabled:
             s3_client.create_bucket(Bucket='my-bucket')
     """
 
-    def __init__(self, s3_client: Any):
+    def __init__(self, s3_client: S3Client):
         """
         Initialize context manager.
 
@@ -59,7 +61,7 @@ class TigrisSnapshot:
 
     def __init__(
         self,
-        s3_client: Any,
+        s3_client: S3Client,
         bucket_name: str,
         snapshot_version: Optional[str] = None,
     ):
@@ -123,7 +125,7 @@ class TigrisFork:
 
     def __init__(
         self,
-        s3_client: Any,
+        s3_client: S3Client,
         source_bucket: str,
         snapshot_version: Optional[str] = None,
     ):

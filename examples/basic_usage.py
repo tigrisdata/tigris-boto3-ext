@@ -15,7 +15,7 @@ from tigris_boto3_ext import (
 # Initialize boto3 S3 client
 s3 = boto3.client(
     's3',
-    endpoint_url='https://fly.storage.tigris.dev',  # Tigris endpoint
+    endpoint_url='https://t3.storage.dev',  # Tigris endpoint
     aws_access_key_id='your-access-key',
     aws_secret_access_key='your-secret-key',
 )

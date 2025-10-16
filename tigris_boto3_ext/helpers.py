@@ -2,12 +2,14 @@
 
 from typing import Any, Optional, cast
 
+from mypy_boto3_s3.client import S3Client
+
 from ._internal import create_header_injector
 from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
 
 
 def create_snapshot_bucket(
-    s3_client: Any,
+    s3_client: S3Client,
     bucket_name: str,
 ) -> dict[str, Any]:
     """
@@ -28,7 +30,7 @@ def create_snapshot_bucket(
 
 
 def create_snapshot(
-    s3_client: Any,
+    s3_client: S3Client,
     bucket_name: str,
     snapshot_name: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -91,7 +93,7 @@ def get_snapshot_version(response: dict[str, Any]) -> Optional[str]:
     return cast(Optional[str], version)
 
 
-def list_snapshots(s3_client: Any, bucket_name: str) -> dict[str, Any]:
+def list_snapshots(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
     """
     List all snapshots for a bucket.
 
@@ -115,7 +117,7 @@ def list_snapshots(s3_client: Any, bucket_name: str) -> dict[str, Any]:
 
 
 def create_fork(
-    s3_client: Any,
+    s3_client: S3Client,
     new_bucket_name: str,
     source_bucket: str,
     snapshot_version: Optional[str] = None,
@@ -149,7 +151,7 @@ def create_fork(
 
 
 def get_object_from_snapshot(
-    s3_client: Any,
+    s3_client: S3Client,
     bucket_name: str,
     key: str,
     snapshot_version: str,
@@ -185,7 +187,7 @@ def get_object_from_snapshot(
 
 
 def list_objects_from_snapshot(
-    s3_client: Any,
+    s3_client: S3Client,
     bucket_name: str,
     snapshot_version: str,
     **kwargs: Any,
@@ -220,7 +222,7 @@ def list_objects_from_snapshot(
 
 
 def head_object_from_snapshot(
-    s3_client: Any,
+    s3_client: S3Client,
     bucket_name: str,
     key: str,
     snapshot_version: str,
