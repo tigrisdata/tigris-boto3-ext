@@ -85,7 +85,7 @@ def example_create_fork():
     # Fork from specific snapshot version
     response = create_snapshot(
         s3,
-        'my-bucket',
+        'my-source-bucket',
         snapshot_name='daily-backup-2024-01-01'
     )
     print(f"Created snapshot: {response}")
@@ -107,6 +107,9 @@ def example_read_from_snapshot():
     print("\n=== Reading from Snapshot ===")
 
     create_snapshot_bucket(s3, 'my-bucket')
+
+    s3.put_object(Bucket='my-bucket', Key='file.txt', Body=b'data')
+
     response = create_snapshot(
         s3,
         'my-bucket',
@@ -119,7 +122,7 @@ def example_read_from_snapshot():
     try:
         obj = get_object_from_snapshot(
             s3,
-            'my-snapshot-bucket',
+            'my-bucket',
             'file.txt',
             snapshot_version
         )
@@ -132,9 +135,8 @@ def example_read_from_snapshot():
     try:
         result = list_objects_from_snapshot(
             s3,
-            'my-snapshot-bucket',
-            snapshot_version,
-            Prefix='data/'
+            'my-bucket',
+            snapshot_version
         )
         print("Objects in snapshot:")
         for obj in result.get('Contents', []):
