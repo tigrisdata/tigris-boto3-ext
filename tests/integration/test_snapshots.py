@@ -236,11 +236,11 @@ class TestSnapshotDataAccess:
         with TigrisSnapshot(s3_client, bucket_name, snapshot_version):
             response = s3_client.list_objects_v2(Bucket=bucket_name)
 
-        # Snapshot should only have v1.txt, not v2.txt
         keys = [obj["Key"] for obj in response.get("Contents", [])]
         if "v1.txt" in keys and "v2.txt" not in keys:
             cleanup_buckets.append(bucket_name)
 
+        # Snapshot should only have v1.txt, not v2.txt
         assert "v1.txt" in keys
         assert "v2.txt" not in keys
 
