@@ -119,10 +119,6 @@ class DataManager:
         """Create a backup bucket with snapshots enabled."""
         return self.s3_client.create_bucket(Bucket=bucket_name)
 
-    def _get_snapshot_decorator(self, snapshot_version):
-        """Helper to create snapshot decorator dynamically."""
-        return with_snapshot(self.bucket_name, snapshot_version)
-
     def read_from_snapshot(self, key, snapshot_version):
         """Read a file from a specific snapshot."""
         @with_snapshot(self.bucket_name, snapshot_version)

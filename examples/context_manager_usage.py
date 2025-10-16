@@ -106,83 +106,6 @@ def example_forking():
             print(f"Note: {e}")
 
 
-def example_nested_contexts():
-    """Example: Nested context managers for complex workflows."""
-    print("\n=== Nested Context Managers ===")
-
-    # This example shows how context managers can be composed
-    # (though in practice, you wouldn't nest these specific ones)
-
-    bucket_name = 'my-bucket'
-
-    # Create a snapshot-enabled bucket
-    with TigrisSnapshotEnabled(s3):
-        try:
-            s3.create_bucket(Bucket=bucket_name)
-            print(f"Created bucket: {bucket_name}")
-        except Exception as e:
-            print(f"Note: {e}")
-
-    # Add data and list snapshots in sequence
-    try:
-        s3.put_object(Bucket=bucket_name, Key='file.txt', Body=b'data')
-        print("Added data to bucket")
-    except Exception as e:
-        print(f"Note: {e}")
-
-    # List snapshots
-    with TigrisSnapshot(s3, bucket_name):
-        try:
-            snapshots = s3.list_buckets()
-            print(f"Found {len(snapshots.get('Buckets', []))} snapshots")
-        except Exception as e:
-            print(f"Note: {e}")
-
-
-def example_error_handling():
-    """Example: Proper error handling with context managers."""
-    print("\n=== Error Handling ===")
-
-    bucket_name = 'test-bucket'
-
-    # Context manager ensures cleanup even on error
-    try:
-        with TigrisSnapshotEnabled(s3):
-            # This will work
-            s3.create_bucket(Bucket=bucket_name)
-            print(f"Created bucket: {bucket_name}")
-
-            # Simulate an error
-            raise ValueError("Simulated error during operation")
-    except ValueError as e:
-        print(f"Caught error: {e}")
-        print("Context manager still cleaned up properly")
-
-    # Verify that outside the context, snapshot header is not set
-    try:
-        s3.create_bucket(Bucket='normal-bucket')
-        print("Created normal bucket without snapshot support")
-    except Exception as e:
-        print(f"Note: {e}")
-
-
-def example_reusable_context():
-    """Example: Reusing context managers."""
-    print("\n=== Reusable Context Managers ===")
-
-    # You can create and reuse context manager instances
-    snapshot_cm = TigrisSnapshotEnabled(s3)
-
-    # Use it multiple times
-    for i in range(3):
-        with snapshot_cm:
-            try:
-                s3.create_bucket(Bucket=f'bucket-{i}')
-                print(f"Created bucket-{i}")
-            except Exception as e:
-                print(f"Note: {e}")
-
-
 def example_comparison_workflow():
     """Example: Compare current state with snapshot."""
     print("\n=== Comparing Current State with Snapshot ===")
@@ -226,9 +149,6 @@ if __name__ == '__main__':
     example_snapshot_listing()
     example_snapshot_reading()
     example_forking()
-    example_nested_contexts()
-    example_error_handling()
-    example_reusable_context()
     example_comparison_workflow()
 
     print("\n" + "=" * 60)

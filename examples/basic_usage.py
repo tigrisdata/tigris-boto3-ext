@@ -27,11 +27,11 @@ def example_create_snapshot_enabled_bucket():
 
     # Using context manager
     with TigrisSnapshotEnabled(s3):
-        response = s3.create_bucket(Bucket='my-snapshot-bucket')
+        response = s3.create_bucket(Bucket='my-bucket')
         print(f"Created bucket: {response}")
 
     # Or using helper function
-    response = create_snapshot_bucket(s3, 'another-snapshot-bucket')
+    response = create_snapshot_bucket(s3, 'another-bucket')
     print(f"Created bucket: {response}")
 
 
@@ -40,12 +40,12 @@ def example_create_snapshot():
     print("\n=== Creating Snapshot ===")
 
     # First, ensure bucket has snapshots enabled
-    create_snapshot_bucket(s3, 'my-snapshot-bucket')
+    create_snapshot_bucket(s3, 'my-bucket')
 
     # Create a snapshot with a name
     response = create_snapshot(
         s3,
-        'my-snapshot-bucket',
+        'my-bucket',
         snapshot_name='daily-backup-2024-01-01'
     )
     print(f"Created snapshot: {response}")
@@ -55,7 +55,7 @@ def example_create_snapshot():
     print(f"Snapshot version: {snapshot_version}")
 
     # Create a snapshot without a specific name
-    response = create_snapshot(s3, 'my-snapshot-bucket')
+    response = create_snapshot(s3, 'my-bucket')
     print(f"Created snapshot: {response}")
 
 
@@ -63,9 +63,9 @@ def example_list_snapshots():
     """Example: List all snapshots for a bucket."""
     print("\n=== Listing Snapshots ===")
 
-    snapshots = list_snapshots(s3, 'my-snapshot-bucket')
+    snapshots = list_snapshots(s3, 'my-bucket')
 
-    print(f"Snapshots for 'my-snapshot-bucket':")
+    print(f"Snapshots for 'my-bucket':")
     for bucket in snapshots.get('Buckets', []):
         print(f"  - {bucket['Name']} (Created: {bucket['CreationDate']})")
 
@@ -78,16 +78,26 @@ def example_create_fork():
     response = create_fork(
         s3,
         'forked-bucket',
-        'my-snapshot-bucket'
+        'my-source-bucket'
     )
     print(f"Created fork: {response}")
 
     # Fork from specific snapshot version
+    response = create_snapshot(
+        s3,
+        'my-bucket',
+        snapshot_name='daily-backup-2024-01-01'
+    )
+    print(f"Created snapshot: {response}")
+
+    snapshot_version = get_snapshot_version(response)
+    print(f"Snapshot version: {snapshot_version}")
+
     response = create_fork(
         s3,
         'forked-from-snapshot',
-        'my-snapshot-bucket',
-        snapshot_version='1234567890'
+        'my-source-bucket',
+        snapshot_version=snapshot_version
     )
     print(f"Created fork from snapshot: {response}")
 
@@ -96,7 +106,14 @@ def example_read_from_snapshot():
     """Example: Read objects from a specific snapshot."""
     print("\n=== Reading from Snapshot ===")
 
-    snapshot_version = '1234567890'  # Use actual snapshot version
+    create_snapshot_bucket(s3, 'my-bucket')
+    response = create_snapshot(
+        s3,
+        'my-bucket',
+        snapshot_name='daily-backup-2024-01-01'
+    )
+    snapshot_version = get_snapshot_version(response)
+    print(f"Snapshot version: {snapshot_version}")
 
     # Get a specific object from snapshot
     try:
