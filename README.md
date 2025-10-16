@@ -107,10 +107,20 @@ from tigris_boto3_ext import (
     get_snapshot_version,
     list_objects_from_snapshot,
     head_object_from_snapshot,
+    has_snapshot_enabled,
+    get_bucket_info,
 )
 
 # Create snapshot-enabled bucket
 create_snapshot_bucket(s3_client, 'my-bucket')
+
+# Check if bucket has snapshots enabled
+if has_snapshot_enabled(s3_client, 'my-bucket'):
+    print("Snapshots are enabled!")
+
+# Get comprehensive bucket information
+info = get_bucket_info(s3_client, 'my-bucket')
+print(f"Snapshot enabled: {info['snapshot_enabled']}")
 
 # Create snapshots
 result = create_snapshot(s3_client, 'my-bucket', snapshot_name='backup-1')
@@ -214,9 +224,58 @@ for obj in historical_objects.get('Contents', []):
     print(f"Historical object: {obj['Key']}")
 ```
 
+### Example 4: Retrieving Bucket Snapshot and Fork Information
+
+```python
+import boto3
+from tigris_boto3_ext import (
+    create_snapshot_bucket,
+    create_snapshot,
+    create_fork,
+    get_snapshot_version,
+    has_snapshot_enabled,
+    get_bucket_info,
+)
+
+s3 = boto3.client('s3')
+
+# Check if a bucket has snapshots enabled
+bucket_name = 'my-bucket'
+
+create_snapshot_bucket(s3, bucket_name)
+
+if has_snapshot_enabled(s3, bucket_name):
+    print(f"✓ Snapshots are enabled for {bucket_name}")
+else:
+    print(f"✗ Snapshots are not enabled for {bucket_name}")
+
+# Get comprehensive bucket information
+info = get_bucket_info(s3, bucket_name)
+print(f"Snapshot enabled: {info['snapshot_enabled']}")
+
+# Example: Check fork lineage
+source_bucket = 'production-data'
+create_snapshot_bucket(s3, source_bucket)
+
+# Create a snapshot
+snapshot_result = create_snapshot(s3, source_bucket, snapshot_name='v1')
+snapshot_version = get_snapshot_version(snapshot_result)
+
+# Create a fork
+forked_bucket = 'test-data'
+create_fork(s3, forked_bucket, source_bucket, snapshot_version=snapshot_version)
+
+# Inspect the fork
+fork_info = get_bucket_info(s3, forked_bucket)
+print(f"Forked from: {fork_info['fork_source_bucket']}")
+print(f"Snapshot version: {fork_info['fork_source_snapshot']}")
+```
+
 ## How It Works
 
 This library uses boto3's event system to inject Tigris-specific headers into S3 API requests:
+
+### Request Headers (Sent to Tigris)
 
 - **`X-Tigris-Enable-Snapshot: true`** - Enables snapshot support for bucket creation
 - **`X-Tigris-Snapshot: true; name=<name>`** - Creates a snapshot
@@ -225,7 +284,15 @@ This library uses boto3's event system to inject Tigris-specific headers into S3
 - **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
 - **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
 
-The library registers event handlers on `before-sign.s3.*` events to add these headers transparently.
+### Response Headers (Returned by Tigris)
+
+The following custom headers are returned in HeadBucket responses and can be accessed via `get_bucket_info()` and `has_snapshot_enabled()`:
+
+- **`X-Tigris-Enable-Snapshot: true`** - Present when snapshots are enabled for the bucket
+- **`X-Tigris-Fork-Source-Bucket: <bucket_name>`** - Present on forked buckets, indicates the parent bucket
+- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Present on forked buckets, indicates the snapshot version
+
+The library registers event handlers on `before-sign.s3.*` events to add request headers transparently.
 
 ## Requirements
 
