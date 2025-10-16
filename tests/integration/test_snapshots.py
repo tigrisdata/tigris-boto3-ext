@@ -21,7 +21,7 @@ from tigris_boto3_ext import (
 class TestSnapshotCreation:
     """Test creating snapshots."""
 
-    def test_create_snapshot_with_helper(
+    def test_create_snapshot_enabled_bucket_with_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating a snapshot using the helper function."""
@@ -37,7 +37,7 @@ class TestSnapshotCreation:
         bucket_names = [b["Name"] for b in response.get("Buckets", [])]
         assert bucket_name in bucket_names
 
-    def test_create_snapshot_with_context_manager(
+    def test_create_snapshot_enabled_bucket_with_context_manager(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         """Test creating a snapshot using context manager."""
@@ -91,11 +91,17 @@ class TestSnapshotListing:
         # Create bucket with snapshot enabled
         create_snapshot_bucket(s3_client, bucket_name)
 
+        # Create 3 snapshots
+        create_snapshot(s3_client, bucket_name, snapshot_name="v1")
+        create_snapshot(s3_client, bucket_name, snapshot_name="v2")
+        create_snapshot(s3_client, bucket_name, snapshot_name="v3")
+
         # List snapshots
         result = list_snapshots(s3_client, bucket_name)
 
         assert "Buckets" in result
-        # Note: The actual snapshot listing behavior depends on Tigris implementation
+        assert len(result["Buckets"]) == 3
+        assert all(bucket["CreationDate"] is not None for bucket in result["Buckets"])
 
     def test_list_snapshots_with_context(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -319,7 +325,7 @@ class TestSnapshotHelperFunctions:
     ):
         """Test using snapshot context with helper functions."""
         bucket_name = generate_bucket_name(test_bucket_prefix, "helper-ctx-")
-        bucket_name_2 = f"{bucket_name}-2"
+        bucket_name_2 = generate_bucket_name(test_bucket_prefix, "helper-ctx-")
         cleanup_buckets.extend([bucket_name, bucket_name_2])
 
         # Create first bucket with snapshot enabled
@@ -329,4 +335,4 @@ class TestSnapshotHelperFunctions:
         with TigrisSnapshotEnabled(s3_client):
             result = s3_client.create_bucket(Bucket=bucket_name_2)
 
-        assert "Location" in result
+        assert "Location" in result and result["Location"] == f'/{bucket_name_2}'
