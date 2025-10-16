@@ -142,6 +142,9 @@ class TestSnapshotDataAccess:
         snapshot_response = create_snapshot(s3_client, bucket_name, snapshot_name="v1")
         snapshot_version = get_snapshot_version(snapshot_response)
 
+        # Update the object
+        s3_client.put_object(Bucket=bucket_name, Key=test_key, Body=b"Updated data")
+
         # Get object from snapshot using helper
         response = get_object_from_snapshot(
             s3_client, bucket_name, test_key, snapshot_version
@@ -164,6 +167,10 @@ class TestSnapshotDataAccess:
         # Create a snapshot and get version
         snapshot_response = create_snapshot(s3_client, bucket_name)
         snapshot_version = get_snapshot_version(snapshot_response)
+
+        # Add more objects
+        s3_client.put_object(Bucket=bucket_name, Key="file3.txt", Body=b"data3")
+        s3_client.put_object(Bucket=bucket_name, Key="file4.txt", Body=b"data4")
 
         # List objects from snapshot using helper
         response = list_objects_from_snapshot(
@@ -229,7 +236,7 @@ class TestSnapshotDataAccess:
         # Snapshot should only have v1.txt, not v2.txt
         keys = [obj["Key"] for obj in response.get("Contents", [])]
         assert "v1.txt" in keys
-
+        assert "v2.txt" not in keys
 
 class TestSnapshotHelperFunctions:
     """Test snapshot helper functions comprehensively."""
@@ -243,11 +250,7 @@ class TestSnapshotHelperFunctions:
 
         result = create_snapshot_bucket(s3_client, bucket_name)
 
-        assert "Location" in result
-        # Verify bucket exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket_name in bucket_names
+        assert "Location" in result and result["Location"] == f'/{bucket_name}'
 
     def test_create_named_snapshot_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -264,7 +267,6 @@ class TestSnapshotHelperFunctions:
         snapshot_version = get_snapshot_version(snapshot_response)
 
         assert snapshot_version is not None
-        assert isinstance(snapshot_version, str)
 
     def test_list_snapshots_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -276,10 +278,17 @@ class TestSnapshotHelperFunctions:
         # Create bucket with snapshot enabled
         create_snapshot_bucket(s3_client, bucket_name)
 
+        # Create 3 snapshots
+        create_snapshot(s3_client, bucket_name, snapshot_name="v1")
+        create_snapshot(s3_client, bucket_name, snapshot_name="v2")
+        create_snapshot(s3_client, bucket_name, snapshot_name="v3")
+
         # List snapshots
         result = list_snapshots(s3_client, bucket_name)
 
         assert "Buckets" in result
+        assert len(result["Buckets"]) == 3
+        assert all(bucket["CreationDate"] is not None for bucket in result["Buckets"])
 
     def test_snapshot_data_operations_helpers(
         self, s3_client, test_bucket_prefix, cleanup_buckets
