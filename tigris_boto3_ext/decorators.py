@@ -3,8 +3,6 @@
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar
 
-from mypy_boto3_s3.client import S3Client
-
 from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
 
 F = TypeVar("F", bound=Callable[..., Any])
