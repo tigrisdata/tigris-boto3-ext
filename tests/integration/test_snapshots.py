@@ -238,10 +238,10 @@ class TestSnapshotDataAccess:
 
         # Snapshot should only have v1.txt, not v2.txt
         keys = [obj["Key"] for obj in response.get("Contents", [])]
-        assert "v1.txt" in keys
-        if "v2.txt" not in keys:
+        if "v1.txt" in keys and "v2.txt" not in keys:
             cleanup_buckets.append(bucket_name)
 
+        assert "v1.txt" in keys
         assert "v2.txt" not in keys
 
 class TestSnapshotHelperFunctions:
