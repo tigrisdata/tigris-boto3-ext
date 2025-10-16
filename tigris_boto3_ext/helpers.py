@@ -1,8 +1,11 @@
 """High-level helper functions for Tigris-specific S3 operations."""
 
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
-from mypy_boto3_s3.client import S3Client
+if TYPE_CHECKING:
+    from mypy_boto3_s3.client import S3Client
+else:
+    S3Client = object
 
 from ._internal import create_header_injector
 from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
