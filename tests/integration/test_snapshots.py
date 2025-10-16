@@ -128,7 +128,6 @@ class TestSnapshotDataAccess:
     ):
         """Test getting object from snapshot using helper function."""
         bucket_name = generate_bucket_name(test_bucket_prefix, "get-snap-")
-        cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
         create_snapshot_bucket(s3_client, bucket_name)
@@ -150,6 +149,9 @@ class TestSnapshotDataAccess:
             s3_client, bucket_name, test_key, snapshot_version
         )
         retrieved_data = response["Body"].read()
+        if retrieved_data == test_data:
+            cleanup_buckets.append(bucket_name)
+
         assert retrieved_data == test_data
 
     def test_list_objects_from_snapshot_helper(
