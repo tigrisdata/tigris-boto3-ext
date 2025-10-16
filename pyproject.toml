@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tigris-boto3-ext"
-version = "0.1.0"
+version = "0.1.1"
 description = "Extend boto3 with Tigris-specific features like snapshots and bucket forking"
 readme = "README.md"
 authors = [
