@@ -12,8 +12,10 @@ from .helpers import (
     create_fork,
     create_snapshot,
     create_snapshot_bucket,
+    get_bucket_info,
     get_object_from_snapshot,
     get_snapshot_version,
+    has_snapshot_enabled,
     head_object_from_snapshot,
     list_objects_from_snapshot,
     list_snapshots,
@@ -39,4 +41,6 @@ __all__ = [
     "get_object_from_snapshot",
     "list_objects_from_snapshot",
     "head_object_from_snapshot",
+    "has_snapshot_enabled",
+    "get_bucket_info",
 ]
