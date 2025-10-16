@@ -151,7 +151,7 @@ class TestBucketInfo:
 
         assert info["snapshot_enabled"] is True
         assert info["fork_source_bucket"] == source_bucket
-        assert info["fork_source_snapshot"] is not None and info["fork_source_snapshot"] != ""
+        assert info["fork_source_snapshot"] != ""
         assert "response_metadata" in info
 
 

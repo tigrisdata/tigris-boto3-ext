@@ -72,10 +72,6 @@ def main():
     print(f"  Source: {fork_info['fork_source_bucket']}")
     print(f"  Snapshot Version: {fork_info['fork_source_snapshot']}")
 
-    # Check the parent bucket information
-    parent_info = get_bucket_info(s3_client, snapshot_bucket)
-    print(f"\nParent bucket information:")
-
     # Example 5: Quick snapshot check before operations
     print("\nExample 5: Conditional operations based on snapshot status")
 

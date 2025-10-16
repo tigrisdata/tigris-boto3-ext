@@ -284,8 +284,7 @@ def has_snapshot_enabled(s3_client: S3Client, bucket_name: str) -> bool:
     """
     response = cast("dict[str, Any]", s3_client.head_bucket(Bucket=bucket_name))
     headers = response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
-    header_value = str(headers.get("x-tigris-enable-snapshot", ""))
-    return header_value.lower() == "true"
+    return is_snapshot_enabled_header_set(headers)
 
 
 def get_bucket_info(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
@@ -326,8 +325,7 @@ def get_bucket_info(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
     headers = response.get("ResponseMetadata", {}).get("HTTPHeaders", {})
 
     # Extract Tigris-specific headers
-    snapshot_header = str(headers.get("x-tigris-enable-snapshot", ""))
-    snapshot_enabled = snapshot_header.lower() == "true"
+    snapshot_enabled = is_snapshot_enabled_header_set(headers)
 
     fork_source_bucket = headers.get("x-tigris-fork-source-bucket")
     fork_source_snapshot = headers.get("x-tigris-fork-source-bucket-snapshot")
@@ -338,3 +336,9 @@ def get_bucket_info(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
         "fork_source_snapshot": fork_source_snapshot,
         "response_metadata": response,
     }
+
+def is_snapshot_enabled_header_set(headers: dict[str, Any]) -> bool:
+    """
+    Check if the snapshot enabled header is set in the response headers.
+    """
+    return str(headers.get("x-tigris-enable-snapshot", "")).lower() == "true"
