@@ -218,7 +218,6 @@ class TestSnapshotDataAccess:
     ):
         """Test accessing snapshot data using context manager with version."""
         bucket_name = generate_bucket_name(test_bucket_prefix, "ctx-ver-")
-        cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled and put objects
         create_snapshot_bucket(s3_client, bucket_name)
@@ -238,6 +237,9 @@ class TestSnapshotDataAccess:
         # Snapshot should only have v1.txt, not v2.txt
         keys = [obj["Key"] for obj in response.get("Contents", [])]
         assert "v1.txt" in keys
+        if "v2.txt" not in keys:
+            cleanup_buckets.append(bucket_name)
+
         assert "v2.txt" not in keys
 
 class TestSnapshotHelperFunctions:
