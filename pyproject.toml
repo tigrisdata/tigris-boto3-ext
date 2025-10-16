@@ -74,6 +74,10 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 strict_equality = true
 
+[[tool.mypy.overrides]]
+module = "mypy_boto3_s3.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
