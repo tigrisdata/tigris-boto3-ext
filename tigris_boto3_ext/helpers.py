@@ -337,6 +337,7 @@ def get_bucket_info(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
         "response_metadata": response,
     }
 
+
 def is_snapshot_enabled_header_set(headers: dict[str, Any]) -> bool:
     """
     Check if the snapshot enabled header is set in the response headers.
