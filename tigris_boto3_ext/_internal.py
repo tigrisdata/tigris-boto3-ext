@@ -1,8 +1,11 @@
 """Internal utilities for event handler management."""
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-from mypy_boto3_s3.client import S3Client
+if TYPE_CHECKING:
+    from mypy_boto3_s3.client import S3Client
+else:
+    S3Client = object
 
 # Global registry to track shared handlers and active injectors
 # Key: (client_id, event_name) -> (handler_function, set of active injector IDs)

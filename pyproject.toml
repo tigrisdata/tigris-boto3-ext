@@ -10,11 +10,10 @@ readme = "README.md"
 authors = [
     {name = "Tigris Data", email = "support@tigrisdata.com"}
 ]
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -74,6 +73,10 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "mypy_boto3_s3.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

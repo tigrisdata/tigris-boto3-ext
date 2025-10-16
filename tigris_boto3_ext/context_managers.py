@@ -1,8 +1,11 @@
 """Context managers for Tigris-specific S3 operations."""
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-from mypy_boto3_s3.client import S3Client
+if TYPE_CHECKING:
+    from mypy_boto3_s3.client import S3Client
+else:
+    S3Client = object
 
 from ._internal import create_header_injector, create_multi_operation_injector
 
