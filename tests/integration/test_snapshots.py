@@ -149,7 +149,9 @@ class TestSnapshotDataAccess:
             s3_client, bucket_name, test_key, snapshot_version
         )
         retrieved_data = response["Body"].read()
+
         if retrieved_data == test_data:
+            
             cleanup_buckets.append(bucket_name)
 
         assert retrieved_data == test_data
