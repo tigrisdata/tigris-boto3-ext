@@ -196,3 +196,25 @@ class TestForkedFromDecoratorWithSnapshotName:
             )
             def should_fail(s3, bucket_name):
                 return s3.create_bucket(Bucket=bucket_name)
+
+    def test_forked_from_decorator_nonexistent_snapshot_raises_error(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """Test that decorator raises error when snapshot doesn't exist."""
+        source_bucket = generate_bucket_name(
+            test_bucket_prefix, "decorator-no-snap-"
+        )
+        fork_bucket = generate_bucket_name(test_bucket_prefix, "decorator-fork-")
+        cleanup_buckets.append(source_bucket)
+
+        # Create source bucket
+        create_snapshot_bucket(s3_client, source_bucket)
+
+        # Define decorated function with non-existent snapshot
+        @forked_from(source_bucket, snapshot_name="non-existent-snapshot")
+        def create_fork_from_missing(s3, bucket_name):
+            return s3.create_bucket(Bucket=bucket_name)
+
+        # Call the decorated function - should raise error
+        with pytest.raises(ValueError, match="not found"):
+            create_fork_from_missing(s3_client, fork_bucket)
