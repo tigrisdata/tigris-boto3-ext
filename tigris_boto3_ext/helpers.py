@@ -155,7 +155,7 @@ def get_snapshot_version_by_name(
         if "; name=" in name_field:
             version, name_part = name_field.split("; name=", 1)
             if name_part == snapshot_name:
-                return version
+                return cast(str, version)
 
     return None
 
