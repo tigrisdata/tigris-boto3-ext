@@ -76,6 +76,7 @@ def with_snapshot(
 def forked_from(
     source_bucket: str,
     snapshot_version: Optional[str] = None,
+    snapshot_name: Optional[str] = None,
 ) -> Callable[[F], F]:
     """
     Decorator for creating forked buckets.
@@ -85,6 +86,11 @@ def forked_from(
     Args:
         source_bucket: Name of the bucket to fork from
         snapshot_version: Optional snapshot version to fork from
+        snapshot_name: Optional snapshot name to fork from (mutually exclusive with snapshot_version)
+
+    Raises:
+        ValueError: If both snapshot_version and snapshot_name are provided, or if
+            the specified snapshot_name is not found in the source bucket
 
     Usage:
         @forked_from('source-bucket')
@@ -93,18 +99,41 @@ def forked_from(
 
         result = create_fork(s3_client, 'forked-bucket')
 
-        # Fork from specific snapshot
+        # Fork from specific snapshot version
         @forked_from('source-bucket', snapshot_version='12345')
         def create_fork_from_snapshot(s3_client, new_bucket_name):
             return s3_client.create_bucket(Bucket=new_bucket_name)
 
         result = create_fork_from_snapshot(s3_client, 'forked-bucket')
+
+        # Fork from specific snapshot name
+        @forked_from('source-bucket', snapshot_name='backup-v1')
+        def create_fork_from_named_snapshot(s3_client, new_bucket_name):
+            return s3_client.create_bucket(Bucket=new_bucket_name)
+
+        result = create_fork_from_named_snapshot(s3_client, 'forked-bucket')
     """
+    if snapshot_version and snapshot_name:
+        raise ValueError("Cannot specify both snapshot_version and snapshot_name")
 
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(s3_client: Any, *args: Any, **kwargs: Any) -> Any:
-            with TigrisFork(s3_client, source_bucket, snapshot_version):
+            # Import here to avoid circular dependency
+            from .helpers import get_snapshot_version_by_name
+
+            # Resolve snapshot_name to version if provided
+            resolved_version = snapshot_version
+            if snapshot_name:
+                resolved_version = get_snapshot_version_by_name(
+                    s3_client, source_bucket, snapshot_name
+                )
+                if resolved_version is None:
+                    raise ValueError(
+                        f"Snapshot with name '{snapshot_name}' not found in bucket '{source_bucket}'"
+                    )
+
+            with TigrisFork(s3_client, source_bucket, resolved_version):
                 return func(s3_client, *args, **kwargs)
 
         return wrapper  # type: ignore

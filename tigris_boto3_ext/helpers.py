@@ -108,15 +108,56 @@ def list_snapshots(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
         bucket_name: Name of the bucket to list snapshots for
 
     Returns:
-        Response from list_buckets operation containing snapshot information
+        Response from list_buckets operation containing snapshot information.
+        Each bucket in the response has a 'Name' field in the format:
+        "{version}; name={snapshot_name}" if the snapshot was created with a name.
 
     Usage:
         snapshots = list_snapshots(s3_client, 'my-bucket')
         for bucket in snapshots.get('Buckets', []):
-            print(bucket['Name'])
+            print(bucket['Name'])  # Format: "1234567890; name=backup-v1"
     """
     with TigrisSnapshot(s3_client, bucket_name):
         return cast("dict[str, Any]", s3_client.list_buckets())
+
+
+def get_snapshot_version_by_name(
+    s3_client: S3Client,
+    bucket_name: str,
+    snapshot_name: str,
+) -> Optional[str]:
+    """
+    Retrieve snapshot version ID by snapshot name.
+
+    When snapshots are created with a name using create_snapshot(), the Tigris API
+    returns them in list_snapshots() with the format "{version}; name={snapshot_name}".
+    This function parses that format to retrieve the version ID.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket
+        snapshot_name: Name of the snapshot to find
+
+    Returns:
+        Snapshot version ID if found, None otherwise
+
+    Usage:
+        create_snapshot(s3_client, 'my-bucket', snapshot_name='backup-v1')
+        version = get_snapshot_version_by_name(s3_client, 'my-bucket', 'backup-v1')
+        # Use version to access snapshot data
+        obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
+    """
+    result = list_snapshots(s3_client, bucket_name)
+
+    for bucket in result.get("Buckets", []):
+        name_field = bucket.get("Name", "")
+        # Format is: "{version}; name={snapshot_name}"
+        if "; name=" in name_field:
+            version, name_part = name_field.split("; name=", 1)
+            if name_part == snapshot_name:
+                return version
+
+    return None
 
 
 def create_fork(
@@ -124,6 +165,7 @@ def create_fork(
     new_bucket_name: str,
     source_bucket: str,
     snapshot_version: Optional[str] = None,
+    snapshot_name: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Create a forked bucket from a source bucket.
@@ -133,23 +175,50 @@ def create_fork(
         new_bucket_name: Name for the new forked bucket
         source_bucket: Name of the bucket to fork from
         snapshot_version: Optional snapshot version to fork from
+        snapshot_name: Optional snapshot name to fork from (mutually exclusive with snapshot_version)
 
     Returns:
         Response from create_bucket operation
+
+    Raises:
+        ValueError: If both snapshot_version and snapshot_name are provided, or if
+            the specified snapshot_name is not found in the source bucket
 
     Usage:
         # Fork from current state
         result = create_fork(s3_client, 'my-fork', 'source-bucket')
 
-        # Fork from specific snapshot
+        # Fork from specific snapshot version
         result = create_fork(
             s3_client,
             'my-fork',
             'source-bucket',
             snapshot_version='12345'
         )
+
+        # Fork from specific snapshot name
+        result = create_fork(
+            s3_client,
+            'my-fork',
+            'source-bucket',
+            snapshot_name='backup-v1'
+        )
     """
-    with TigrisFork(s3_client, source_bucket, snapshot_version):
+    if snapshot_version and snapshot_name:
+        raise ValueError("Cannot specify both snapshot_version and snapshot_name")
+
+    # If snapshot_name is provided, resolve it to a version
+    resolved_version = snapshot_version
+    if snapshot_name:
+        resolved_version = get_snapshot_version_by_name(
+            s3_client, source_bucket, snapshot_name
+        )
+        if resolved_version is None:
+            raise ValueError(
+                f"Snapshot with name '{snapshot_name}' not found in bucket '{source_bucket}'"
+            )
+
+    with TigrisFork(s3_client, source_bucket, resolved_version):
         return cast("dict[str, Any]", s3_client.create_bucket(Bucket=new_bucket_name))
 
 
