@@ -105,6 +105,7 @@ from tigris_boto3_ext import (
     create_fork,
     get_object_from_snapshot,
     get_snapshot_version,
+    get_snapshot_version_by_name,
     list_objects_from_snapshot,
     head_object_from_snapshot,
     has_snapshot_enabled,
@@ -131,8 +132,12 @@ snapshots = list_snapshots(s3_client, 'my-bucket')
 
 # Create forks
 create_fork(s3_client, 'new-bucket', 'source-bucket', snapshot_version=version)
+# Or fork from snapshot name
+create_fork(s3_client, 'new-bucket', 'source-bucket', snapshot_name='backup-1')
 
 # Access snapshot data
+# Get version from snapshot name
+version = get_snapshot_version_by_name(s3_client, 'my-bucket', 'backup-1')
 obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
 objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='data/')
 metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
