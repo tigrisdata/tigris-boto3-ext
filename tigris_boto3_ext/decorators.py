@@ -114,13 +114,13 @@ def forked_from(
         result = create_fork_from_named_snapshot(s3_client, 'forked-bucket')
     """
     if snapshot_version and snapshot_name:
-        raise ValueError("Cannot specify both snapshot_version and snapshot_name")
+        raise ValueError("Cannot specify both snapshot_version and snapshot_name")  # noqa: TRY003
 
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(s3_client: Any, *args: Any, **kwargs: Any) -> Any:
             # Import here to avoid circular dependency
-            from .helpers import get_snapshot_version_by_name
+            from .helpers import get_snapshot_version_by_name  # noqa: PLC0415
 
             # Resolve snapshot_name to version if provided
             resolved_version = snapshot_version
@@ -129,7 +129,7 @@ def forked_from(
                     s3_client, source_bucket, snapshot_name
                 )
                 if resolved_version is None:
-                    raise ValueError(
+                    raise ValueError(  # noqa: TRY003
                         f"Snapshot with name '{snapshot_name}' not found in bucket '{source_bucket}'"
                     )
 

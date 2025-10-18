@@ -205,7 +205,7 @@ def create_fork(
         )
     """
     if snapshot_version and snapshot_name:
-        raise ValueError("Cannot specify both snapshot_version and snapshot_name")
+        raise ValueError("Cannot specify both snapshot_version and snapshot_name")  # noqa: TRY003
 
     # If snapshot_name is provided, resolve it to a version
     resolved_version = snapshot_version
@@ -214,7 +214,7 @@ def create_fork(
             s3_client, source_bucket, snapshot_name
         )
         if resolved_version is None:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003
                 f"Snapshot with name '{snapshot_name}' not found in bucket '{source_bucket}'"
             )
 
