@@ -128,7 +128,6 @@ class TestSnapshotDataAccess:
     ):
         """Test getting object from snapshot using helper function."""
         bucket_name = generate_bucket_name(test_bucket_prefix, "get-snap-")
-        cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled
         create_snapshot_bucket(s3_client, bucket_name)
@@ -150,6 +149,11 @@ class TestSnapshotDataAccess:
             s3_client, bucket_name, test_key, snapshot_version
         )
         retrieved_data = response["Body"].read()
+
+        if retrieved_data == test_data:
+            
+            cleanup_buckets.append(bucket_name)
+
         assert retrieved_data == test_data
 
     def test_list_objects_from_snapshot_helper(
@@ -216,7 +220,6 @@ class TestSnapshotDataAccess:
     ):
         """Test accessing snapshot data using context manager with version."""
         bucket_name = generate_bucket_name(test_bucket_prefix, "ctx-ver-")
-        cleanup_buckets.append(bucket_name)
 
         # Create bucket with snapshot enabled and put objects
         create_snapshot_bucket(s3_client, bucket_name)
@@ -233,8 +236,11 @@ class TestSnapshotDataAccess:
         with TigrisSnapshot(s3_client, bucket_name, snapshot_version):
             response = s3_client.list_objects_v2(Bucket=bucket_name)
 
-        # Snapshot should only have v1.txt, not v2.txt
         keys = [obj["Key"] for obj in response.get("Contents", [])]
+        if "v1.txt" in keys and "v2.txt" not in keys:
+            cleanup_buckets.append(bucket_name)
+
+        # Snapshot should only have v1.txt, not v2.txt
         assert "v1.txt" in keys
         assert "v2.txt" not in keys
 
