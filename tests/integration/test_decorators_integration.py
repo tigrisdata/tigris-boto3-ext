@@ -148,7 +148,7 @@ class TestForkedFromDecorator:
         """Test creating fork with decorator."""
         source_bucket = generate_bucket_name(test_bucket_prefix, "dec-fork-src-")
         fork_bucket = generate_bucket_name(test_bucket_prefix, "dec-fork-dst-")
-        cleanup_buckets.extend([source_bucket, fork_bucket])
+        cleanup_buckets.extend([fork_bucket, source_bucket])
 
         # Create source bucket with snapshot enabled
         with TigrisSnapshotEnabled(s3_client):
@@ -172,7 +172,7 @@ class TestForkedFromDecorator:
         """Test that fork is isolated from source."""
         source_bucket = generate_bucket_name(test_bucket_prefix, "dec-iso-src-")
         fork_bucket = generate_bucket_name(test_bucket_prefix, "dec-iso-dst-")
-        cleanup_buckets.extend([source_bucket, fork_bucket])
+        cleanup_buckets.extend([fork_bucket, source_bucket])
 
         # Create source bucket with snapshot enabled and add data
         with TigrisSnapshotEnabled(s3_client):
@@ -207,7 +207,7 @@ class TestForkedFromDecorator:
         source_bucket = generate_bucket_name(test_bucket_prefix, "dec-multi-src-")
         fork1 = generate_bucket_name(test_bucket_prefix, "dec-multi-fork1-")
         fork2 = generate_bucket_name(test_bucket_prefix, "dec-multi-fork2-")
-        cleanup_buckets.extend([source_bucket, fork1, fork2])
+        cleanup_buckets.extend([fork1, fork2, source_bucket])
 
         # Create source bucket with snapshot enabled
         with TigrisSnapshotEnabled(s3_client):
@@ -236,7 +236,7 @@ class TestDecoratorCombinations:
         """Test workflow: create snapshot, then fork it."""
         source_bucket = generate_bucket_name(test_bucket_prefix, "wf-src-")
         fork_bucket = generate_bucket_name(test_bucket_prefix, "wf-fork-")
-        cleanup_buckets.extend([source_bucket, fork_bucket])
+        cleanup_buckets.extend([fork_bucket, source_bucket])
 
         # Create source with snapshot
         @snapshot_enabled

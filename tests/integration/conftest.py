@@ -1,6 +1,7 @@
 """Shared fixtures for integration tests."""
 
 import os
+import time
 import uuid
 
 import boto3
@@ -71,8 +72,8 @@ def cleanup_buckets(s3_client, test_bucket_prefix):
     yield created_buckets
 
     # Cleanup: delete all test buckets
+    failures = []
     for bucket_name in created_buckets:
-        try:
             # Delete all objects in the bucket first
             try:
                 response = s3_client.list_objects_v2(Bucket=bucket_name)
@@ -83,6 +84,22 @@ def cleanup_buckets(s3_client, test_bucket_prefix):
                 pass
 
             # Delete the bucket
+            e = delete_bucket(s3_client, bucket_name)
+            if e is not None:
+                 failures.append(f"{bucket_name}: {e}")
+
+    if failures:
+        pytest.fail(f"Cleanup failed for {len(failures)} bucket(s):\n" + "\n".join(failures))
+
+
+def delete_bucket(s3_client, bucket_name, retries=3, delay=1):
+    last_exception = None
+    for attempt in range(retries):
+        try:
             s3_client.delete_bucket(Bucket=bucket_name)
+            return None
         except Exception as e:
-            print(f"Warning: Failed to cleanup bucket {bucket_name}: {e}")
+            last_exception = e
+            if attempt < retries - 1: # Not sleeping after last attempt
+                time.sleep(delay*(attempt + 1))
+    return last_exception

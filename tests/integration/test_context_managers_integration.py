@@ -113,7 +113,7 @@ class TestForkContext:
         """Test creating bucket in fork context."""
         source_bucket = generate_bucket_name(test_bucket_prefix, "fork-src-")
         fork_bucket = generate_bucket_name(test_bucket_prefix, "fork-dst-")
-        cleanup_buckets.extend([source_bucket, fork_bucket])
+        cleanup_buckets.extend([fork_bucket, source_bucket])
 
         # Create source bucket with snapshot enabled
         with TigrisSnapshotEnabled(s3_client):
@@ -132,7 +132,7 @@ class TestForkContext:
         source_bucket = generate_bucket_name(test_bucket_prefix, "fork-reuse-src-")
         fork1 = generate_bucket_name(test_bucket_prefix, "fork-reuse1-")
         fork2 = generate_bucket_name(test_bucket_prefix, "fork-reuse2-")
-        cleanup_buckets.extend([source_bucket, fork1, fork2])
+        cleanup_buckets.extend([fork1, fork2, source_bucket])
 
         # Create source bucket with snapshot enabled
         with TigrisSnapshotEnabled(s3_client):
@@ -183,7 +183,7 @@ class TestNestedContexts:
         source_bucket = generate_bucket_name(test_bucket_prefix, "mixed-src-")
         snap_bucket = generate_bucket_name(test_bucket_prefix, "mixed-snap-")
         fork_bucket = generate_bucket_name(test_bucket_prefix, "mixed-fork-")
-        cleanup_buckets.extend([source_bucket, snap_bucket, fork_bucket])
+        cleanup_buckets.extend([snap_bucket, fork_bucket, source_bucket])
 
         # Create source bucket with snapshot enabled
         with TigrisSnapshotEnabled(s3_client):
