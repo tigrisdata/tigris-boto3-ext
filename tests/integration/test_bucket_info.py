@@ -87,7 +87,7 @@ class TestBucketInfo:
         """Test get_bucket_info for forked bucket."""
         source_bucket = generate_bucket_name(test_bucket_prefix, "source-")
         forked_bucket = generate_bucket_name(test_bucket_prefix, "forked-")
-        cleanup_buckets.extend([source_bucket, forked_bucket])
+        cleanup_buckets.extend([forked_bucket, source_bucket])
 
         # Create source bucket with snapshot enabled
         create_snapshot_bucket(s3_client, source_bucket)
@@ -116,7 +116,7 @@ class TestBucketInfo:
         """Test get_bucket_info for bucket that is a fork parent."""
         source_bucket = generate_bucket_name(test_bucket_prefix, "parent-")
         forked_bucket = generate_bucket_name(test_bucket_prefix, "child-")
-        cleanup_buckets.extend([source_bucket, forked_bucket])
+        cleanup_buckets.extend([forked_bucket, source_bucket])
 
         # Create source bucket with snapshot enabled
         create_snapshot_bucket(s3_client, source_bucket)
@@ -138,7 +138,7 @@ class TestBucketInfo:
         """Test get_bucket_info for bucket forked from current state (no snapshot version)."""
         source_bucket = generate_bucket_name(test_bucket_prefix, "src-current-")
         forked_bucket = generate_bucket_name(test_bucket_prefix, "fork-current-")
-        cleanup_buckets.extend([source_bucket, forked_bucket])
+        cleanup_buckets.extend([forked_bucket, source_bucket])
 
         # Create source bucket with snapshot enabled
         create_snapshot_bucket(s3_client, source_bucket)
