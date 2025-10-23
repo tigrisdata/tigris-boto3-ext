@@ -71,6 +71,7 @@ def cleanup_buckets(s3_client, test_bucket_prefix):
     yield created_buckets
 
     # Cleanup: delete all test buckets
+    failures = []
     for bucket_name in created_buckets:
         try:
             # Delete all objects in the bucket first
@@ -86,3 +87,7 @@ def cleanup_buckets(s3_client, test_bucket_prefix):
             s3_client.delete_bucket(Bucket=bucket_name)
         except Exception as e:
             print(f"Warning: Failed to cleanup bucket {bucket_name}: {e}")
+            failures.append(f"{bucket_name}: {e}")
+
+    if failures:
+        pytest.fail(f"Cleanup failed for {len(failures)} bucket(s):\n" + "\n".join(failures))
