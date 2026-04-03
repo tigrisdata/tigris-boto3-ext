@@ -6,6 +6,15 @@ Tigris-specific features like snapshots and bucket forking while maintaining ful
 boto3 compatibility.
 """
 
+from .bundle import (
+    BUNDLE_COMPRESSION_GZIP,
+    BUNDLE_COMPRESSION_NONE,
+    BUNDLE_COMPRESSION_ZSTD,
+    BUNDLE_ON_ERROR_FAIL,
+    BUNDLE_ON_ERROR_SKIP,
+    BundleResponse,
+    bundle_objects,
+)
 from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
 from .decorators import forked_from, snapshot_enabled, with_snapshot
 from .helpers import (
@@ -24,6 +33,14 @@ from .helpers import (
 __version__ = "0.1.0"
 
 __all__ = [
+    # Bundle API
+    "bundle_objects",
+    "BundleResponse",
+    "BUNDLE_COMPRESSION_NONE",
+    "BUNDLE_COMPRESSION_GZIP",
+    "BUNDLE_COMPRESSION_ZSTD",
+    "BUNDLE_ON_ERROR_SKIP",
+    "BUNDLE_ON_ERROR_FAIL",
     # Context Managers
     "TigrisSnapshotEnabled",
     "TigrisSnapshot",
