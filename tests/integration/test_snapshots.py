@@ -3,7 +3,7 @@
 import time
 
 import pytest
-from .conftest import generate_bucket_name
+from .conftest import bucket_exists, generate_bucket_name
 
 from tigris_boto3_ext import (
     TigrisSnapshot,
@@ -33,9 +33,7 @@ class TestSnapshotCreation:
 
         assert "Location" in result
         # Verify bucket exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket_name in bucket_names
+        assert bucket_exists(s3_client, bucket_name)
 
     def test_create_snapshot_enabled_bucket_with_context_manager(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -49,9 +47,7 @@ class TestSnapshotCreation:
 
         assert "Location" in result
         # Verify bucket exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket_name in bucket_names
+        assert bucket_exists(s3_client, bucket_name)
 
     def test_create_snapshot_with_name(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -75,9 +71,7 @@ class TestSnapshotCreation:
         assert isinstance(snapshot_version, str)
 
         # Verify bucket exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket_name in bucket_names
+        assert bucket_exists(s3_client, bucket_name)
 
 
 class TestSnapshotListing:

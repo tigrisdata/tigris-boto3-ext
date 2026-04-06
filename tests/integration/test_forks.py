@@ -1,6 +1,6 @@
 """Integration tests for fork functionality."""
 
-from .conftest import generate_bucket_name
+from .conftest import bucket_exists, generate_bucket_name
 
 import pytest
 
@@ -29,9 +29,7 @@ class TestForkCreation:
 
         assert "Location" in result
         # Verify fork bucket exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert fork_bucket in bucket_names
+        assert bucket_exists(s3_client, fork_bucket)
 
     def test_create_fork_with_context_manager(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -50,9 +48,7 @@ class TestForkCreation:
 
         assert "Location" in result
         # Verify fork bucket exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert fork_bucket in bucket_names
+        assert bucket_exists(s3_client, fork_bucket)
 
     def test_create_fork_from_snapshot_version(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -145,9 +141,7 @@ class TestForkWithHelpers:
 
         assert "Location" in result
         # Verify fork exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert fork_bucket in bucket_names
+        assert bucket_exists(s3_client, fork_bucket)
 
     def test_fork_context_with_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -212,7 +206,5 @@ class TestMultipleForks:
         assert "Location" in result2
 
         # Verify both forks exist
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert fork1 in bucket_names
-        assert fork2 in bucket_names
+        assert bucket_exists(s3_client, fork1)
+        assert bucket_exists(s3_client, fork2)

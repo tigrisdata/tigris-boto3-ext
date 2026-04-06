@@ -2,7 +2,7 @@
 
 import pytest
 
-from .conftest import generate_bucket_name
+from .conftest import bucket_exists, generate_bucket_name
 from tigris_boto3_ext import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
 
 
@@ -38,10 +38,8 @@ class TestSnapshotEnabledContext:
             s3_client.create_bucket(Bucket=bucket2)
 
         # Verify both buckets exist
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket1 in bucket_names
-        assert bucket2 in bucket_names
+        assert bucket_exists(s3_client, bucket1)
+        assert bucket_exists(s3_client, bucket2)
 
     def test_snapshot_enabled_with_exception(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -147,10 +145,8 @@ class TestForkContext:
             s3_client.create_bucket(Bucket=fork2)
 
         # Verify both forks exist
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert fork1 in bucket_names
-        assert fork2 in bucket_names
+        assert bucket_exists(s3_client, fork1)
+        assert bucket_exists(s3_client, fork2)
 
 
 class TestNestedContexts:
@@ -171,10 +167,8 @@ class TestNestedContexts:
                 s3_client.create_bucket(Bucket=bucket2)
 
         # Verify both buckets exist
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket1 in bucket_names
-        assert bucket2 in bucket_names
+        assert bucket_exists(s3_client, bucket1)
+        assert bucket_exists(s3_client, bucket2)
 
     def test_mixed_context_nesting(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -197,10 +191,8 @@ class TestNestedContexts:
                 s3_client.create_bucket(Bucket=fork_bucket)
 
         # Verify all buckets exist
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert snap_bucket in bucket_names
-        assert fork_bucket in bucket_names
+        assert bucket_exists(s3_client, snap_bucket)
+        assert bucket_exists(s3_client, fork_bucket)
 
 
 class TestContextWithDataOperations:

@@ -1,6 +1,6 @@
 """Integration tests for decorators."""
 
-from .conftest import generate_bucket_name
+from .conftest import bucket_exists, generate_bucket_name
 
 import pytest
 
@@ -26,9 +26,7 @@ class TestSnapshotEnabledDecorator:
 
         assert "Location" in result
         # Verify bucket exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert bucket_name in bucket_names
+        assert bucket_exists(s3_client, bucket_name)
 
     def test_decorator_with_multiple_operations(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -162,9 +160,7 @@ class TestForkedFromDecorator:
 
         assert "Location" in result
         # Verify fork exists
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert fork_bucket in bucket_names
+        assert bucket_exists(s3_client, fork_bucket)
 
     def test_decorator_fork_isolation(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -223,10 +219,8 @@ class TestForkedFromDecorator:
         assert "Location" in result1
         assert "Location" in result2
         # Verify both forks exist
-        response = s3_client.list_buckets()
-        bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-        assert fork1 in bucket_names
-        assert fork2 in bucket_names
+        assert bucket_exists(s3_client, fork1)
+        assert bucket_exists(s3_client, fork2)
 
 
 class TestDecoratorCombinations:
@@ -267,9 +261,7 @@ class TestDecoratorCombinations:
             return name
 
         def verify_bucket(client, name):
-            response = client.list_buckets()
-            bucket_names = [b["Name"] for b in response.get("Buckets", [])]
-            return name in bucket_names
+            return bucket_exists(client, name)
 
         # Setup
         setup_bucket(s3_client, bucket_name)

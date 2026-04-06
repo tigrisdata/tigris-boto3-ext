@@ -64,6 +64,15 @@ def generate_bucket_name(prefix: str = "tigris-boto3-ext-test-", suffix: str = "
     return f"{prefix}{suffix}{unique_id}"
 
 
+def bucket_exists(s3_client, bucket_name):  # noqa: ANN001, ANN201
+    """Check if a bucket exists using head_bucket (doesn't depend on list_buckets pagination)."""
+    try:
+        s3_client.head_bucket(Bucket=bucket_name)
+        return True
+    except Exception:
+        return False
+
+
 def _empty_bucket(s3_client, bucket_name):  # noqa: ANN001, ANN202
     """Delete all objects (including all versions and delete markers) from a bucket."""
     try:
