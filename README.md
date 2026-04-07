@@ -304,7 +304,7 @@ except BundleError as e:
     print(f"Bundle failed (HTTP {e.status_code}): {e.body}")
 ```
 
-See [`examples/bundle_usage.py`](examples/bundle_usage.py) for more patterns including compression, error handling, response metadata, and ML training batches.
+See [`examples/bundle_usage.py`](examples/bundle_usage.py) for more patterns including error handling, response metadata, and ML training batches.
 
 ## How It Works
 

@@ -12,7 +12,6 @@ import tarfile
 import boto3
 
 from tigris_boto3_ext import (
-    BUNDLE_COMPRESSION_GZIP,
     BUNDLE_ON_ERROR_FAIL,
     BUNDLE_ON_ERROR_SKIP,
     BundleError,
@@ -69,28 +68,6 @@ def example_bundle_with_context_manager():
                     data = f.read()
                     print(f"  {member.name}: {len(data)} bytes")
     # response is automatically closed here
-
-
-def example_bundle_with_gzip():
-    """Example: Fetch a gzip-compressed bundle for bandwidth savings."""
-    print("\n=== Gzip-Compressed Bundle ===")
-
-    keys = ["dataset/metadata/labels.json", "dataset/metadata/config.yaml"]
-
-    response = bundle_objects(
-        s3, BUCKET, keys, compression=BUNDLE_COMPRESSION_GZIP
-    )
-
-    # Wrap with gzip decompressor before passing to tarfile
-    with gzip.open(response, "rb") as gz:
-        with tarfile.open(fileobj=gz, mode="r|") as tar:
-            for member in tar:
-                if member.name == "__bundle_errors.json":
-                    continue
-                f = tar.extractfile(member)
-                if f is not None:
-                    data = f.read()
-                    print(f"  {member.name}: {len(data)} bytes")
 
 
 def example_skip_mode_with_error_manifest():
