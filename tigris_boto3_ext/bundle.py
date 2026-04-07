@@ -81,7 +81,7 @@ class BundleResponse:
         self.body = body
         self.content_type = content_type
         self.status_code = status_code
-        self.headers = headers
+        self.headers = {k.lower(): v for k, v in headers.items()}
 
     @property
     def object_count(self) -> Optional[int]:

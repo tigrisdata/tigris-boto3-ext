@@ -264,3 +264,19 @@ class TestBundleResponse:
         assert resp.object_count is None
         assert resp.bundle_bytes is None
         assert resp.skipped_count is None
+
+    def test_metadata_properties_case_insensitive(self):
+        """Headers in Title-Case (HTTP/1.1) should still be found."""
+        resp = BundleResponse(
+            body=MagicMock(),
+            content_type="application/x-tar",
+            status_code=200,
+            headers={
+                "X-Tigris-Bundle-Count": "10",
+                "X-Tigris-Bundle-Bytes": "2048",
+                "X-Tigris-Bundle-Skipped": "1",
+            },
+        )
+        assert resp.object_count == 10
+        assert resp.bundle_bytes == 2048
+        assert resp.skipped_count == 1
