@@ -25,6 +25,7 @@ keywords = ["tigris", "boto3", "s3", "object-storage", "snapshot", "fork"]
 requires-python = ">=3.9"
 dependencies = [
     "boto3>=1.26.0",
+    "urllib3>=1.25.4",
 ]
 
 [project.optional-dependencies]
