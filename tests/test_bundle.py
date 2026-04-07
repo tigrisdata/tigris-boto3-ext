@@ -6,10 +6,9 @@ import pytest
 
 from tigris_boto3_ext.bundle import (
     BUNDLE_COMPRESSION_GZIP,
-    BUNDLE_COMPRESSION_NONE,
-    BUNDLE_COMPRESSION_ZSTD,
     BUNDLE_ON_ERROR_FAIL,
-    BUNDLE_ON_ERROR_SKIP,
+    MAX_BUNDLE_KEYS,
+    BundleError,
     BundleResponse,
     bundle_objects,
 )
@@ -21,7 +20,10 @@ def mock_s3_client():
     client = MagicMock()
     client.meta.endpoint_url = "https://t3.storage.dev"
     client.meta.region_name = "auto"
-    client._request_signer._credentials = MagicMock()
+    frozen_creds = MagicMock()
+    client._request_signer._credentials.get_frozen_credentials.return_value = (
+        frozen_creds
+    )
     return client
 
 
@@ -49,6 +51,24 @@ class TestBundleObjectsValidation:
             bundle_objects(
                 mock_s3_client, "bucket", ["key"], on_error="panic"
             )
+
+    def test_too_many_keys_raises(self, mock_s3_client):
+        keys = [f"key_{i}" for i in range(MAX_BUNDLE_KEYS + 1)]
+        with pytest.raises(ValueError, match="too many keys"):
+            bundle_objects(mock_s3_client, "bucket", keys)
+
+    def test_max_keys_exactly_at_limit(self, mock_s3_client):
+        """Exactly MAX_BUNDLE_KEYS should not raise a validation error."""
+        keys = [f"key_{i}" for i in range(MAX_BUNDLE_KEYS)]
+        with patch("tigris_boto3_ext.bundle._bundle_pool") as mock_pool, patch(
+            "tigris_boto3_ext.bundle.SigV4Auth"
+        ):
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.headers = {"Content-Type": "application/x-tar"}
+            mock_pool.urlopen.return_value = mock_response
+            result = bundle_objects(mock_s3_client, "bucket", keys)
+            assert isinstance(result, BundleResponse)
 
 
 class TestBundleObjectsRequest:
@@ -138,8 +158,11 @@ class TestBundleObjectsErrors:
         mock_response.read.return_value = b"<Error><Code>InvalidArgument</Code></Error>"
         mock_pool.urlopen.return_value = mock_response
 
-        with pytest.raises(Exception, match="HTTP 400"):
+        with pytest.raises(BundleError, match="HTTP 400") as exc_info:
             bundle_objects(mock_s3_client, "bucket", ["key"])
+
+        assert exc_info.value.status_code == 400
+        assert "InvalidArgument" in exc_info.value.body
 
     @patch("tigris_boto3_ext.bundle._bundle_pool")
     @patch("tigris_boto3_ext.bundle.SigV4Auth")
@@ -152,9 +175,11 @@ class TestBundleObjectsErrors:
         mock_response.read.side_effect = OSError("connection reset")
         mock_pool.urlopen.return_value = mock_response
 
-        with pytest.raises(Exception, match="HTTP 500"):
+        with pytest.raises(BundleError, match="HTTP 500") as exc_info:
             bundle_objects(mock_s3_client, "bucket", ["key"])
 
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.body == ""
         mock_response.close.assert_called_once()
 
 
@@ -198,3 +223,57 @@ class TestBundleResponse:
 
         assert resp.read() == b"all data"
         mock_body.read.assert_called_once_with(None)
+
+    def test_object_count_property(self):
+        resp = BundleResponse(
+            body=MagicMock(),
+            content_type="application/x-tar",
+            status_code=200,
+            headers={"x-tigris-bundle-count": "42"},
+        )
+        assert resp.object_count == 42
+
+    def test_bundle_bytes_property(self):
+        resp = BundleResponse(
+            body=MagicMock(),
+            content_type="application/x-tar",
+            status_code=200,
+            headers={"x-tigris-bundle-bytes": "614400"},
+        )
+        assert resp.bundle_bytes == 614400
+
+    def test_skipped_count_property(self):
+        resp = BundleResponse(
+            body=MagicMock(),
+            content_type="application/x-tar",
+            status_code=200,
+            headers={"x-tigris-bundle-skipped": "3"},
+        )
+        assert resp.skipped_count == 3
+
+    def test_metadata_properties_missing_headers(self):
+        resp = BundleResponse(
+            body=MagicMock(),
+            content_type="application/x-tar",
+            status_code=200,
+            headers={},
+        )
+        assert resp.object_count is None
+        assert resp.bundle_bytes is None
+        assert resp.skipped_count is None
+
+    def test_metadata_properties_case_insensitive(self):
+        """Headers in Title-Case (HTTP/1.1) should still be found."""
+        resp = BundleResponse(
+            body=MagicMock(),
+            content_type="application/x-tar",
+            status_code=200,
+            headers={
+                "X-Tigris-Bundle-Count": "10",
+                "X-Tigris-Bundle-Bytes": "2048",
+                "X-Tigris-Bundle-Skipped": "1",
+            },
+        )
+        assert resp.object_count == 10
+        assert resp.bundle_bytes == 2048
+        assert resp.skipped_count == 1

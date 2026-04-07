@@ -25,6 +25,7 @@ keywords = ["tigris", "boto3", "s3", "object-storage", "snapshot", "fork"]
 requires-python = ">=3.9"
 dependencies = [
     "boto3>=1.26.0",
+    "urllib3>=1.25.4",
 ]
 
 [project.optional-dependencies]
@@ -61,6 +62,10 @@ line-length = 88
 target-version = "py39"
 lint.extend-select = ["E", "F", "W", "I", "N", "UP", "ANN", "S", "B", "A", "COM", "C4", "DTZ", "T10", "ISC", "ICN", "G", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
 lint.extend-ignore = ["ANN204", "ANN401", "ARG001", "COM812", "E501", "PGH003", "PLR0913", "PYI034", "PYI036", "RUF022"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN001", "ANN201", "ANN202", "S101", "PLR2004", "SLF001"]
+"examples/**/*.py" = ["ANN201", "S106", "T201"]
 
 [tool.mypy]
 python_version = "3.9"

@@ -5,7 +5,7 @@ This directory contains integration tests for `tigris-boto3-ext` that test again
 ## Prerequisites
 
 1. **Tigris Account**: You need access to a Tigris S3-compatible service
-2. **AWS Credentials**: Valid AWS access key ID and secret access key for Tigris
+2. **Credentials**: Valid access key ID and secret access key for Tigris
 3. **Endpoint URL**: The Tigris S3 endpoint URL
 
 ## Setup
@@ -30,7 +30,7 @@ export AWS_ENDPOINT_URL="https://t3.storage.dev"
 
 Create a `.env` file in the project root:
 
-```
+```text
 AWS_ENDPOINT_URL_S3=https://t3.storage.dev
 AWS_ACCESS_KEY_ID=your-access-key-id
 AWS_SECRET_ACCESS_KEY=your-secret-access-key
@@ -67,6 +67,9 @@ uv run pytest tests/integration/test_decorators_integration.py
 
 # Test TigrisS3Client
 uv run pytest tests/integration/test_client_integration.py
+
+# Test Bundle API
+uv run pytest tests/integration/test_bundle.py
 ```
 
 ### Run Specific Test Class or Function
@@ -94,7 +97,6 @@ uv run pytest tests/integration/ -vv -s
 ## Test Structure
 
 - **`conftest.py`**: Shared fixtures for all integration tests
-
   - `tigris_endpoint`: Gets Tigris endpoint from environment
   - `aws_credentials`: Gets AWS credentials from environment
   - `s3_client`: Creates a real boto3 S3 client
@@ -106,6 +108,7 @@ uv run pytest tests/integration/ -vv -s
 - **`test_context_managers_integration.py`**: Tests context manager behavior
 - **`test_decorators_integration.py`**: Tests decorator functionality
 - **`test_client_integration.py`**: Tests TigrisS3Client wrapper
+- **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
 
 ## Test Bucket Naming
 
@@ -115,7 +118,7 @@ All test buckets are prefixed with `tigris-boto3-ext-test-` followed by a timest
 
 If environment variables are not set, tests will be automatically skipped with a message:
 
-```
+```text
 SKIPPED [1] tests/integration/conftest.py:10: AWS_ENDPOINT_URL_S3 or AWS_ENDPOINT_URL not set
 SKIPPED [1] tests/integration/conftest.py:19: AWS credentials not set
 ```
@@ -195,4 +198,8 @@ The integration tests cover:
 - ✅ Context manager usage and nesting
 - ✅ Decorator functionality
 - ✅ TigrisS3Client wrapper methods
+- ✅ Bundle API single and multi-object fetch
+- ✅ Bundle compression (gzip, zstd)
+- ✅ Bundle error handling (skip and fail modes)
+- ✅ Bundle response metadata properties
 - ✅ Complete workflows combining multiple features

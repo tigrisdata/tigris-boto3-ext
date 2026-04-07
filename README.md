@@ -10,6 +10,8 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 
 ## Features
 
+- **Bundle API**: Fetch thousands of objects in a single request as a streaming tar archive — designed for ML training workloads
+- **Bundle API**: Fetch thousands of objects in a single request as a streaming tar archive — designed for ML training workloads
 - **Snapshot Support**: Create, list, and read from bucket snapshots
 - **Bucket Forking**: Create forked buckets from existing buckets or snapshots
 - **Multiple Usage Patterns**: Context managers, decorators, helper functions, or wrapper client
@@ -271,6 +273,39 @@ print(f"Forked from: {fork_info['fork_source_bucket']}")
 print(f"Snapshot version: {fork_info['fork_source_snapshot']}")
 ```
 
+### Example 5: Bundle API — Fetch Multiple Objects in One Request
+
+```python
+import tarfile
+import boto3
+from tigris_boto3_ext import bundle_objects, BundleError, BUNDLE_ON_ERROR_FAIL
+
+s3 = boto3.client('s3')
+
+# Fetch a batch of training images as a streaming tar archive
+keys = [f"dataset/train/img_{i:05d}.jpg" for i in range(1000)]
+response = bundle_objects(s3, 'my-dataset-bucket', keys)
+
+with tarfile.open(fileobj=response, mode="r|") as tar:
+    for member in tar:
+        if member.name == "__bundle_errors.json":
+            continue  # skip the error manifest
+        f = tar.extractfile(member)
+        if f is not None:
+            image_bytes = f.read()
+            # feed to training pipeline
+
+# Use fail mode for inference where every object must be present
+try:
+    response = bundle_objects(
+        s3, 'my-bucket', keys, on_error=BUNDLE_ON_ERROR_FAIL
+    )
+except BundleError as e:
+    print(f"Bundle failed (HTTP {e.status_code}): {e.body}")
+```
+
+See [`examples/bundle_usage.py`](examples/bundle_usage.py) for more patterns including error handling, response metadata, and ML training batches.
+
 ## How It Works
 
 This library uses boto3's event system to inject Tigris-specific headers into S3 API requests:
@@ -362,5 +397,5 @@ Contributions welcome! Please open an issue or PR on GitHub.
 
 For issues and questions:
 
-- GitHub Issues: https://github.com/tigrisdata/tigris-boto3-ext/issues
-- Documentation: https://www.tigrisdata.com/docs
+- GitHub Issues: <https://github.com/tigrisdata/tigris-boto3-ext/issues>
+- Documentation: <https://www.tigrisdata.com/docs>

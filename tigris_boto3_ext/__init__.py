@@ -12,6 +12,8 @@ from .bundle import (
     BUNDLE_COMPRESSION_ZSTD,
     BUNDLE_ON_ERROR_FAIL,
     BUNDLE_ON_ERROR_SKIP,
+    MAX_BUNDLE_KEYS,
+    BundleError,
     BundleResponse,
     bundle_objects,
 )
@@ -35,7 +37,9 @@ __version__ = "0.1.0"
 __all__ = [
     # Bundle API
     "bundle_objects",
+    "BundleError",
     "BundleResponse",
+    "MAX_BUNDLE_KEYS",
     "BUNDLE_COMPRESSION_NONE",
     "BUNDLE_COMPRESSION_GZIP",
     "BUNDLE_COMPRESSION_ZSTD",

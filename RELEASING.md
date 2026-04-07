@@ -65,7 +65,7 @@ uv run twine upload dist/*
 
 The project uses [Trusted Publishing](https://docs.pypi.org/trusted-publishers/) for secure releases:
 
-1. Go to PyPI project settings: https://pypi.org/manage/project/tigris-boto3-ext/settings/
+1. Go to PyPI project settings: <https://pypi.org/manage/project/tigris-boto3-ext/settings/>
 2. Add a GitHub trusted publisher with:
    - Owner: `tigrisdata`
    - Repository: `tigris-boto3-ext`
@@ -85,11 +85,13 @@ This project follows [Semantic Versioning](https://semver.org/):
 Before publishing, you can test the release process:
 
 1. Build the package locally:
+
    ```bash
    uv build
    ```
 
 2. Install in a clean environment:
+
    ```bash
    python -m venv test-env
    source test-env/bin/activate
@@ -97,6 +99,7 @@ Before publishing, you can test the release process:
    ```
 
 3. Test the installation:
+
    ```bash
    python -c "import tigris_boto3_ext; print(tigris_boto3_ext.__version__)"
    ```
@@ -105,7 +108,7 @@ Before publishing, you can test the release process:
 
 After a successful release:
 
-1. Verify the package is available on PyPI: https://pypi.org/project/tigris-boto3-ext/
+1. Verify the package is available on PyPI: <https://pypi.org/project/tigris-boto3-ext/>
 2. Test installation: `pip install tigris-boto3-ext`
 3. Update documentation if needed
 4. Announce the release (blog, social media, etc.)
