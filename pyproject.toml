@@ -64,6 +64,7 @@ lint.extend-ignore = ["ANN204", "ANN401", "ARG001", "COM812", "E501", "PGH003", 
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["ANN001", "ANN201", "ANN202", "S101", "PLR2004", "SLF001"]
+"examples/**/*.py" = ["ANN201", "S106", "T201"]
 
 [tool.mypy]
 python_version = "3.9"

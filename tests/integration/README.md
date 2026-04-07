@@ -67,6 +67,9 @@ uv run pytest tests/integration/test_decorators_integration.py
 
 # Test TigrisS3Client
 uv run pytest tests/integration/test_client_integration.py
+
+# Test Bundle API
+uv run pytest tests/integration/test_bundle.py
 ```
 
 ### Run Specific Test Class or Function
@@ -105,6 +108,7 @@ uv run pytest tests/integration/ -vv -s
 - **`test_context_managers_integration.py`**: Tests context manager behavior
 - **`test_decorators_integration.py`**: Tests decorator functionality
 - **`test_client_integration.py`**: Tests TigrisS3Client wrapper
+- **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
 
 ## Test Bucket Naming
 
@@ -194,4 +198,8 @@ The integration tests cover:
 - ✅ Context manager usage and nesting
 - ✅ Decorator functionality
 - ✅ TigrisS3Client wrapper methods
+- ✅ Bundle API single and multi-object fetch
+- ✅ Bundle compression (gzip, zstd)
+- ✅ Bundle error handling (skip and fail modes)
+- ✅ Bundle response metadata properties
 - ✅ Complete workflows combining multiple features
