@@ -5,7 +5,6 @@ tar archive — designed for ML training workloads that need to fetch
 thousands of objects per batch without per-object HTTP overhead.
 """
 
-import gzip
 import json
 import tarfile
 
@@ -171,7 +170,6 @@ if __name__ == "__main__":
 
     example_basic_bundle()
     example_bundle_with_context_manager()
-    example_bundle_with_gzip()
     example_skip_mode_with_error_manifest()
     example_fail_mode()
     example_response_metadata()

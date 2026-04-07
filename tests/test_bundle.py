@@ -6,10 +6,7 @@ import pytest
 
 from tigris_boto3_ext.bundle import (
     BUNDLE_COMPRESSION_GZIP,
-    BUNDLE_COMPRESSION_NONE,
-    BUNDLE_COMPRESSION_ZSTD,
     BUNDLE_ON_ERROR_FAIL,
-    BUNDLE_ON_ERROR_SKIP,
     MAX_BUNDLE_KEYS,
     BundleError,
     BundleResponse,
