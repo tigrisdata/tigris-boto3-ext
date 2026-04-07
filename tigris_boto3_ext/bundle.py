@@ -9,7 +9,12 @@ import urllib3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 
-_bundle_pool = urllib3.PoolManager()
+_bundle_pool = urllib3.PoolManager(
+    num_pools=10,
+    maxsize=16,
+)
+
+MAX_BUNDLE_KEYS = 5000
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.client import S3Client
@@ -23,6 +28,15 @@ BUNDLE_COMPRESSION_ZSTD = "zstd"
 
 BUNDLE_ON_ERROR_SKIP = "skip"
 BUNDLE_ON_ERROR_FAIL = "fail"
+
+
+class BundleError(Exception):
+    """Raised when a bundle request fails."""
+
+    def __init__(self, message: str, status_code: int, body: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
 
 
 class BundleResponse:
@@ -68,6 +82,24 @@ class BundleResponse:
         self.content_type = content_type
         self.status_code = status_code
         self.headers = headers
+
+    @property
+    def object_count(self) -> Optional[int]:
+        """Number of objects included in the bundle (from x-tigris-bundle-count header)."""
+        val = self.headers.get("x-tigris-bundle-count")
+        return int(val) if val else None
+
+    @property
+    def bundle_bytes(self) -> Optional[int]:
+        """Total bytes of object data in the bundle (from x-tigris-bundle-bytes header)."""
+        val = self.headers.get("x-tigris-bundle-bytes")
+        return int(val) if val else None
+
+    @property
+    def skipped_count(self) -> Optional[int]:
+        """Number of keys skipped in skip mode (from x-tigris-bundle-skipped header)."""
+        val = self.headers.get("x-tigris-bundle-skipped")
+        return int(val) if val else None
 
     def read(self, amt: Optional[int] = None) -> bytes:
         """Read from the response body. Makes BundleResponse file-like."""
@@ -147,10 +179,13 @@ def bundle_objects(
     if on_error not in (BUNDLE_ON_ERROR_SKIP, BUNDLE_ON_ERROR_FAIL):
         msg = f"invalid on_error: {on_error!r} (must be 'skip' or 'fail')"
         raise ValueError(msg)
+    if len(keys) > MAX_BUNDLE_KEYS:
+        msg = f"too many keys: {len(keys)} (max {MAX_BUNDLE_KEYS} per request)"
+        raise ValueError(msg)
 
     # Extract endpoint and credentials from the boto3 client.
     endpoint = s3_client.meta.endpoint_url
-    credentials = s3_client._request_signer._credentials  # type: ignore[attr-defined]  # noqa: SLF001
+    credentials = s3_client._request_signer._credentials.get_frozen_credentials()  # type: ignore[attr-defined]  # noqa: SLF001
     region = s3_client.meta.region_name or "auto"
 
     url = f"{endpoint.rstrip('/')}/{bucket}?bundle"
@@ -186,7 +221,7 @@ def bundle_objects(
         finally:
             response.close()
         msg = f"Bundle request failed (HTTP {response.status}): {error_body}"
-        raise Exception(msg)  # noqa: TRY002
+        raise BundleError(msg, status_code=response.status, body=error_body)
 
     return BundleResponse(
         body=response,
