@@ -397,5 +397,5 @@ Contributions welcome! Please open an issue or PR on GitHub.
 
 For issues and questions:
 
-- GitHub Issues: https://github.com/tigrisdata/tigris-boto3-ext/issues
-- Documentation: https://www.tigrisdata.com/docs
+- GitHub Issues: <https://github.com/tigrisdata/tigris-boto3-ext/issues>
+- Documentation: <https://www.tigrisdata.com/docs>
