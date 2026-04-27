@@ -7,6 +7,7 @@ path that the rest of this library uses. This module mirrors the pattern in
 the request with SigV4, and send it via urllib3.
 """
 
+import hashlib
 import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
@@ -73,7 +74,13 @@ def patch_bucket_settings(
     url = f"{endpoint.rstrip('/')}/{bucket}"
     payload = json.dumps(body)
 
-    headers = {"Content-Type": "application/json"}
+    # X-Amz-Content-Sha256 must be present in the headers passed to SigV4 so it
+    # is included in the canonical request and signed; otherwise Tigris rejects
+    # the PATCH with SignatureDoesNotMatch. Mirrors the bundle.py pattern.
+    headers = {
+        "Content-Type": "application/json",
+        "X-Amz-Content-Sha256": hashlib.sha256(payload.encode()).hexdigest(),
+    }
 
     request = AWSRequest(method="PATCH", url=url, data=payload, headers=headers)
     SigV4Auth(credentials, "s3", region).add_auth(request)

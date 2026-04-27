@@ -50,6 +50,9 @@ class TestPatchBucketSettingsRequest:
             sent_body = sent_body.decode()
         assert json.loads(sent_body) == {"object_notifications": {}}
         assert kwargs["headers"].get("Content-Type") == "application/json"
+        # SigV4 requires the body hash to be included in the canonical request.
+        assert "X-Amz-Content-Sha256" in kwargs["headers"]
+        assert kwargs["headers"]["X-Amz-Content-Sha256"] != ""
 
     @patch("tigris_boto3_ext._rest._rest_pool")
     @patch("tigris_boto3_ext._rest.SigV4Auth")
