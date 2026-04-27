@@ -95,3 +95,16 @@ class TestPatchBucketSettingsRequest:
 
         result = patch_bucket_settings(mock_s3_client, "b", {"x": 1})
         assert result == {}
+
+    @patch("tigris_boto3_ext._rest._rest_pool")
+    @patch("tigris_boto3_ext._rest.SigV4Auth")
+    def test_malformed_json_returns_empty_dict(
+        self, mock_sigv4, mock_pool, mock_s3_client
+    ):
+        response = MagicMock()
+        response.status = 200
+        response.data = b"{not json"
+        mock_pool.urlopen.return_value = response
+
+        result = patch_bucket_settings(mock_s3_client, "b", {"x": 1})
+        assert result == {}

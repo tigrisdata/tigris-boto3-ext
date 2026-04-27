@@ -524,6 +524,57 @@ class TestCreateForksCredentials:
         ]
 
 
+class TestEmptyBucket:
+    """Cover _empty_bucket internals via teardown_workspace."""
+
+    def test_empty_bucket_deletes_versions_and_markers(self, s3_client):
+        # The versioned paginator returns one page with versions + delete markers.
+        s3_client.get_paginator.return_value.paginate.return_value = iter(
+            [
+                {
+                    "Versions": [
+                        {"Key": "k1", "VersionId": "v1"},
+                        {"Key": "k2", "VersionId": "v2"},
+                    ],
+                    "DeleteMarkers": [{"Key": "k3", "VersionId": "vm1"}],
+                }
+            ]
+        )
+        teardown_workspace(s3_client, Workspace(bucket="b"))
+        s3_client.get_paginator.assert_called_with("list_object_versions")
+        s3_client.delete_objects.assert_called_once_with(
+            Bucket="b",
+            Delete={
+                "Objects": [
+                    {"Key": "k1", "VersionId": "v1"},
+                    {"Key": "k2", "VersionId": "v2"},
+                    {"Key": "k3", "VersionId": "vm1"},
+                ]
+            },
+        )
+        s3_client.delete_bucket.assert_called_once_with(Bucket="b")
+
+    def test_falls_back_to_unversioned_on_failure(self, s3_client):
+        # Versioned listing raises (e.g. unversioned bucket); fallback runs.
+        v_paginator = MagicMock()
+        v_paginator.paginate.side_effect = RuntimeError("not versioned")
+        unv_paginator = MagicMock()
+        unv_paginator.paginate.return_value = iter(
+            [{"Contents": [{"Key": "a"}, {"Key": "b"}]}]
+        )
+
+        def get_paginator(op):
+            if op == "list_object_versions":
+                return v_paginator
+            return unv_paginator
+
+        s3_client.get_paginator.side_effect = get_paginator
+
+        teardown_workspace(s3_client, Workspace(bucket="b"))
+        deleted = [c.kwargs["Key"] for c in s3_client.delete_object.call_args_list]
+        assert deleted == ["a", "b"]
+
+
 class TestTeardownForksCredentials:
     def test_revokes_each_credential(self, s3_client):
         s3_client.get_paginator.return_value.paginate.return_value = iter([])

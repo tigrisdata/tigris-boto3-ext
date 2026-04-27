@@ -161,6 +161,57 @@ class TestCreateAccessKey:
         )
 
 
+class TestParseAccessKeyResponseEdges:
+    """Cover the response-parsing edge cases."""
+
+    @patch("tigris_boto3_ext._iam._iam_pool")
+    @patch("tigris_boto3_ext._iam.SigV4Auth")
+    def test_empty_body_raises(self, _sigv4, mock_pool, mock_s3_client):
+        mock_pool.urlopen.return_value = _ok_response(b"")
+        with pytest.raises(RuntimeError, match="unexpected response"):
+            create_access_key_with_buckets_role(mock_s3_client, "k", [])
+
+    @patch("tigris_boto3_ext._iam._iam_pool")
+    @patch("tigris_boto3_ext._iam.SigV4Auth")
+    def test_malformed_json_raises(self, _sigv4, mock_pool, mock_s3_client):
+        mock_pool.urlopen.return_value = _ok_response(b"{not json")
+        with pytest.raises(RuntimeError, match="unexpected response"):
+            create_access_key_with_buckets_role(mock_s3_client, "k", [])
+
+    @patch("tigris_boto3_ext._iam._iam_pool")
+    @patch("tigris_boto3_ext._iam.SigV4Auth")
+    def test_json_missing_access_key_raises(
+        self, _sigv4, mock_pool, mock_s3_client
+    ):
+        mock_pool.urlopen.return_value = _ok_response(
+            b'{"CreateAccessKeyResult": {}}'
+        )
+        with pytest.raises(RuntimeError, match="unexpected response"):
+            create_access_key_with_buckets_role(mock_s3_client, "k", [])
+
+    @patch("tigris_boto3_ext._iam._iam_pool")
+    @patch("tigris_boto3_ext._iam.SigV4Auth")
+    def test_malformed_xml_raises(self, _sigv4, mock_pool, mock_s3_client):
+        mock_pool.urlopen.return_value = _ok_response(b"<not><xml")
+        with pytest.raises(RuntimeError, match="unexpected response"):
+            create_access_key_with_buckets_role(mock_s3_client, "k", [])
+
+    @patch("tigris_boto3_ext._iam._iam_pool")
+    @patch("tigris_boto3_ext._iam.SigV4Auth")
+    def test_xml_missing_secret_raises(self, _sigv4, mock_pool, mock_s3_client):
+        # XML with AccessKeyId but no SecretAccessKey — invalid response.
+        xml = (
+            "<CreateAccessKeyResponse>"
+            "<CreateAccessKeyResult>"
+            "<AccessKey><AccessKeyId>X</AccessKeyId></AccessKey>"
+            "</CreateAccessKeyResult>"
+            "</CreateAccessKeyResponse>"
+        )
+        mock_pool.urlopen.return_value = _ok_response(xml.encode())
+        with pytest.raises(RuntimeError, match="unexpected response"):
+            create_access_key_with_buckets_role(mock_s3_client, "k", [])
+
+
 class TestDeleteAccessKey:
     @patch("tigris_boto3_ext._iam._iam_pool")
     @patch("tigris_boto3_ext._iam.SigV4Auth")
