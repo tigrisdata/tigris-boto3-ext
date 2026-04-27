@@ -3,10 +3,6 @@
 Mirrors the public surface of `@tigrisdata/agent-kit` (TypeScript) — workspaces,
 forks, checkpoints, and coordination — composed from this library's lower-level
 header-injection helpers and direct-HTTP REST helpers.
-
-Scoped credentials (per-workspace / per-fork access keys) are not yet
-included; they require Tigris IAM API support which is outside the boto3
-surface this library extends.
 """
 
 import time
@@ -17,10 +13,16 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from mypy_boto3_s3.client import S3Client
+
+    Role = Literal["Editor", "ReadOnly"]
 else:
     S3Client = object
+    Role = str
 
+from ._iam import create_access_key_with_buckets_role, delete_access_key
 from ._rest import patch_bucket_settings
 from .helpers import (
     create_fork,
@@ -32,10 +34,19 @@ from .helpers import (
 
 
 @dataclass
+class Credentials:
+    """A scoped Tigris access key for a workspace or fork."""
+
+    access_key_id: str
+    secret_access_key: str
+
+
+@dataclass
 class Workspace:
     """A single-agent workspace bucket."""
 
     bucket: str
+    credentials: Optional[Credentials] = None
 
 
 @dataclass
@@ -43,6 +54,7 @@ class Fork:
     """A copy-on-write fork bucket."""
 
     bucket: str
+    credentials: Optional[Credentials] = None
 
 
 @dataclass
@@ -69,6 +81,7 @@ def create_workspace(
     *,
     ttl_days: Optional[int] = None,
     enable_snapshots: bool = False,
+    credentials_role: Optional[Role] = None,
 ) -> Workspace:
     """Create a workspace bucket for an agent.
 
@@ -79,13 +92,21 @@ def create_workspace(
             after this many days.
         enable_snapshots: If True, enable snapshot support on the bucket so
             checkpoints can be taken later.
+        credentials_role: If set (``"Editor"`` or ``"ReadOnly"``), provision a
+            scoped Tigris access key for the workspace bucket and return it
+            on the workspace's ``credentials`` field.
 
     Returns:
         The created Workspace.
 
     Usage:
-        ws = create_workspace(s3, "agent-abc", ttl_days=1, enable_snapshots=True)
-        # ... agent reads/writes ws.bucket ...
+        ws = create_workspace(
+            s3, "agent-abc",
+            ttl_days=1,
+            enable_snapshots=True,
+            credentials_role="Editor",
+        )
+        # ws.credentials.access_key_id / .secret_access_key
         teardown_workspace(s3, ws)
     """
     if ttl_days is not None and ttl_days <= 0:
@@ -113,7 +134,8 @@ def create_workspace(
             },
         )
 
-    return Workspace(bucket=name)
+    credentials = _provision_credentials(s3_client, name, credentials_role)
+    return Workspace(bucket=name, credentials=credentials)
 
 
 def teardown_workspace(
@@ -122,13 +144,16 @@ def teardown_workspace(
     *,
     force: bool = True,
 ) -> None:
-    """Delete a workspace bucket.
+    """Delete a workspace bucket and revoke its scoped credentials, if any.
 
     Args:
         s3_client: boto3 S3 client.
         workspace: Workspace returned by create_workspace.
         force: If True (default), empty the bucket before deletion.
     """
+    if workspace.credentials is not None:
+        with suppress(Exception):
+            delete_access_key(s3_client, workspace.credentials.access_key_id)
     if force:
         _empty_bucket(s3_client, workspace.bucket)
     s3_client.delete_bucket(Bucket=workspace.bucket)
@@ -140,6 +165,7 @@ def create_forks(
     count: int,
     *,
     prefix: Optional[str] = None,
+    credentials_role: Optional[Role] = None,
 ) -> ForkSet:
     """Snapshot a bucket then create `count` independent copy-on-write forks.
 
@@ -156,6 +182,9 @@ def create_forks(
         count: Number of forks to create. Must be >= 1.
         prefix: Optional prefix for fork bucket names. Defaults to
             ``f"{base_bucket}-fork-{timestamp}"``.
+        credentials_role: If set (``"Editor"`` or ``"ReadOnly"``), provision a
+            scoped Tigris access key per fork and attach it to the
+            corresponding ``Fork.credentials``.
 
     Returns:
         ForkSet with the base bucket, snapshot id, and a list of forks.
@@ -190,7 +219,8 @@ def create_forks(
         except Exception:
             # Stop creating more forks; return what we have.
             break
-        forks.append(Fork(bucket=fork_name))
+        credentials = _provision_credentials(s3_client, fork_name, credentials_role)
+        forks.append(Fork(bucket=fork_name, credentials=credentials))
 
     if not forks:
         msg = f"Failed to create any forks of {base_bucket!r}"
@@ -205,13 +235,16 @@ def teardown_forks(
     *,
     force: bool = True,
 ) -> None:
-    """Delete every fork in a ForkSet.
+    """Delete every fork in a ForkSet, revoking each fork's credentials.
 
-    Best-effort: per-fork deletion errors are swallowed so a single failure
-    doesn't strand the rest. Use ``force=False`` to skip emptying buckets
-    before deletion.
+    Best-effort: per-fork errors are swallowed so a single failure doesn't
+    strand the rest. Use ``force=False`` to skip emptying buckets before
+    deletion.
     """
     for fork in fork_set.forks:
+        if fork.credentials is not None:
+            with suppress(Exception):
+                delete_access_key(s3_client, fork.credentials.access_key_id)
         if force:
             _empty_bucket(s3_client, fork.bucket)
         with suppress(Exception):
@@ -361,6 +394,26 @@ def setup_coordination(
 def teardown_coordination(s3_client: S3Client, bucket: str) -> None:
     """Remove webhook notifications from a bucket."""
     patch_bucket_settings(s3_client, bucket, {"object_notifications": {}})
+
+
+def _provision_credentials(
+    s3_client: S3Client, bucket: str, role: Optional[Role]
+) -> Optional[Credentials]:
+    """Create a Tigris scoped access key for ``bucket`` if a role is requested."""
+    if role is None:
+        return None
+    if role not in ("Editor", "ReadOnly"):
+        msg = f"credentials_role must be 'Editor' or 'ReadOnly', got {role!r}"
+        raise ValueError(msg)
+    access_key = create_access_key_with_buckets_role(
+        s3_client,
+        f"{bucket}-key",
+        [{"bucket": bucket, "role": role}],
+    )
+    return Credentials(
+        access_key_id=access_key["access_key_id"],
+        secret_access_key=access_key["secret_access_key"],
+    )
 
 
 def _empty_bucket(s3_client: S3Client, bucket: str) -> None:

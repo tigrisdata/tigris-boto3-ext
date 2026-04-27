@@ -6,9 +6,11 @@ Tigris-specific features like snapshots and bucket forking while maintaining ful
 boto3 compatibility.
 """
 
+from ._iam import TigrisIAMError
 from ._rest import TigrisRestError
 from .agent_kit import (
     Checkpoint,
+    Credentials,
     Fork,
     ForkSet,
     Workspace,
@@ -85,6 +87,7 @@ __all__ = [
     "Fork",
     "ForkSet",
     "Checkpoint",
+    "Credentials",
     "create_workspace",
     "teardown_workspace",
     "create_forks",
@@ -95,4 +98,5 @@ __all__ = [
     "setup_coordination",
     "teardown_coordination",
     "TigrisRestError",
+    "TigrisIAMError",
 ]

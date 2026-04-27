@@ -6,6 +6,7 @@ from .conftest import bucket_exists, generate_bucket_name
 
 from tigris_boto3_ext import (
     Checkpoint,
+    Credentials,
     Fork,
     ForkSet,
     Workspace,
@@ -75,6 +76,22 @@ class TestWorkspace:
 
         assert not bucket_exists(s3_client, name)
 
+    def test_workspace_with_credentials_round_trip(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        name = generate_bucket_name(test_bucket_prefix, "ws-cred-")
+        cleanup_buckets.append(name)
+
+        ws = create_workspace(
+            s3_client, name, credentials_role="Editor"
+        )
+        assert isinstance(ws.credentials, Credentials)
+        assert ws.credentials.access_key_id
+        assert ws.credentials.secret_access_key
+
+        teardown_workspace(s3_client, ws)
+        assert not bucket_exists(s3_client, name)
+
 
 class TestForks:
     def test_create_forks_creates_n_buckets(
@@ -140,6 +157,30 @@ class TestForks:
             "Body"
         ].read()
         assert base_obj == b"v1"
+
+    def test_create_forks_with_credentials(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        base = generate_bucket_name(test_bucket_prefix, "forks-cred-")
+        cleanup_buckets.append(base)
+        create_workspace(s3_client, base, enable_snapshots=True)
+
+        prefix = generate_bucket_name(test_bucket_prefix, "fork-cred-")
+        result = create_forks(
+            s3_client, base, 2, prefix=prefix, credentials_role="ReadOnly"
+        )
+        for fork in result.forks:
+            cleanup_buckets.append(fork.bucket)
+
+        for fork in result.forks:
+            assert isinstance(fork.credentials, Credentials)
+            assert fork.credentials.access_key_id
+            assert fork.credentials.secret_access_key
+            # Each fork's credentials must be unique.
+        ids = [f.credentials.access_key_id for f in result.forks]
+        assert len(set(ids)) == len(ids)
+
+        teardown_forks(s3_client, result)
 
     def test_teardown_forks_deletes_all(
         self, s3_client, test_bucket_prefix, cleanup_buckets

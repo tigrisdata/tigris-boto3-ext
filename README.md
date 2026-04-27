@@ -149,7 +149,8 @@ the [`@tigrisdata/agent-kit`](https://github.com/tigrisdata/storage/tree/main/pa
 #### Workspaces
 
 A workspace is a dedicated bucket for a single agent, with optional TTL for
-auto-cleanup and optional snapshot support for checkpointing.
+auto-cleanup, optional snapshot support for checkpointing, and an optional
+scoped Tigris access key for least-privilege access.
 
 ```python
 from tigris_boto3_ext import create_workspace, teardown_workspace
@@ -157,13 +158,15 @@ from tigris_boto3_ext import create_workspace, teardown_workspace
 ws = create_workspace(
     s3_client,
     'agent-abc',
-    ttl_days=1,           # auto-expire objects after 1 day
-    enable_snapshots=True, # allow checkpointing later
+    ttl_days=1,                  # auto-expire objects after 1 day
+    enable_snapshots=True,       # allow checkpointing later
+    credentials_role='Editor',   # provision a scoped access key
 )
 
-# ... agent reads/writes to ws.bucket ...
+# ws.bucket — bucket name
+# ws.credentials.access_key_id / secret_access_key — scoped key (if requested)
 
-teardown_workspace(s3_client, ws)  # empties and deletes the bucket
+teardown_workspace(s3_client, ws)  # revokes credentials, empties, deletes
 ```
 
 #### Forks (parallel agent runs)
@@ -175,10 +178,17 @@ the base bucket or each other.
 ```python
 from tigris_boto3_ext import create_forks, teardown_forks
 
-forks = create_forks(s3_client, 'training-data', count=3, prefix='exp-42')
+forks = create_forks(
+    s3_client,
+    'training-data',
+    count=3,
+    prefix='exp-42',
+    credentials_role='ReadOnly',  # one scoped key per fork (optional)
+)
 
 for fork in forks.forks:
     print(fork.bucket)  # 'exp-42-0', 'exp-42-1', 'exp-42-2'
+    # fork.credentials.access_key_id / secret_access_key (if requested)
 
 teardown_forks(s3_client, forks)
 ```
@@ -224,10 +234,10 @@ setup_coordination(
 teardown_coordination(s3_client, 'pipeline-bucket')
 ```
 
-> **Note**: TTL on workspaces and webhook coordination use a Tigris-specific
-> `PATCH /{bucket}` REST endpoint (not part of the S3 API). Per-workspace and
-> per-fork scoped credentials are not yet supported — they require Tigris IAM
-> integration outside the boto3 surface.
+> **Note**: TTL, webhook coordination, and scoped credentials all use
+> Tigris-specific REST endpoints (not S3): TTL/coordination via
+> `PATCH /{bucket}`, credentials via `https://iam.storageapi.dev/`. Override
+> the IAM endpoint with the `TIGRIS_IAM_ENDPOINT` env var.
 
 ## Complete Examples
 
