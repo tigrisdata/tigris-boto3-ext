@@ -160,8 +160,8 @@ class TestCreateForks:
             with pytest.raises(RuntimeError, match="Could not read snapshot version"):
                 create_forks(s3_client, "base", 1)
 
-    def test_partial_failure_returns_what_was_created(self, s3_client):
-        # First two forks succeed, third raises — return the two that worked.
+    def test_partial_failure_skips_then_continues(self, s3_client):
+        # Third fork fails; remaining attempts still proceed (no early exit).
         with (
             patch("tigris_boto3_ext.agent_kit.create_snapshot", return_value={}),
             patch(
@@ -169,10 +169,12 @@ class TestCreateForks:
             ),
             patch("tigris_boto3_ext.agent_kit.create_fork") as mock_fork,
         ):
-            mock_fork.side_effect = [None, None, RuntimeError("boom")]
+            mock_fork.side_effect = [None, None, RuntimeError("boom"), None, None]
             result = create_forks(s3_client, "base", 5, prefix="p")
 
-        assert [f.bucket for f in result.forks] == ["p-0", "p-1"]
+        # p-2 is skipped; the other four were still attempted and recorded.
+        assert [f.bucket for f in result.forks] == ["p-0", "p-1", "p-3", "p-4"]
+        assert mock_fork.call_count == 5
 
     def test_all_fail_raises(self, s3_client):
         with (
@@ -327,6 +329,22 @@ class TestListCheckpoints:
             return_value={"Buckets": [{"Name": "", "CreationDate": None}]},
         ):
             assert list_checkpoints(s3_client, "b") == []
+
+    def test_equality_ignores_created_at(self):
+        """A checkpoint() result must equal the same logical entry from list."""
+        from datetime import datetime, timezone
+
+        client_side = Checkpoint(
+            snapshot_id="snap-1",
+            name="ep-1",
+            created_at=datetime(2026, 4, 27, tzinfo=timezone.utc),
+        )
+        server_side = Checkpoint(
+            snapshot_id="snap-1",
+            name="ep-1",
+            created_at=datetime(2026, 4, 28, tzinfo=timezone.utc),
+        )
+        assert client_side == server_side
 
 
 # -- coordination --
@@ -553,6 +571,27 @@ class TestEmptyBucket:
             },
         )
         s3_client.delete_bucket.assert_called_once_with(Bucket="b")
+
+    def test_unversioned_continues_after_per_object_failure(self, s3_client):
+        """A single delete_object failure must not strand the rest of the page."""
+        v_paginator = MagicMock()
+        v_paginator.paginate.side_effect = RuntimeError("not versioned")
+        unv_paginator = MagicMock()
+        unv_paginator.paginate.return_value = iter(
+            [{"Contents": [{"Key": "a"}, {"Key": "b"}, {"Key": "c"}]}]
+        )
+
+        def get_paginator(op):
+            return v_paginator if op == "list_object_versions" else unv_paginator
+
+        s3_client.get_paginator.side_effect = get_paginator
+        # Object "b" can't be deleted; "a" and "c" still must.
+        s3_client.delete_object.side_effect = [None, RuntimeError("perm"), None]
+
+        teardown_workspace(s3_client, Workspace(bucket="b"))
+
+        keys = [c.kwargs["Key"] for c in s3_client.delete_object.call_args_list]
+        assert keys == ["a", "b", "c"]
 
     def test_falls_back_to_unversioned_on_failure(self, s3_client):
         # Versioned listing raises (e.g. unversioned bucket); fallback runs.

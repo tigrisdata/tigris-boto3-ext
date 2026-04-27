@@ -68,11 +68,16 @@ class ForkSet:
 
 @dataclass
 class Checkpoint:
-    """A labeled snapshot of a bucket."""
+    """A labeled snapshot of a bucket.
+
+    ``created_at`` is sourced client-side by :func:`checkpoint` (``datetime.now``)
+    but server-side by :func:`list_checkpoints`. To keep equality stable across
+    those two paths it's excluded from comparison.
+    """
 
     snapshot_id: str
     name: Optional[str] = None
-    created_at: Optional[datetime] = None
+    created_at: Optional[datetime] = field(default=None, compare=False)
 
 
 def create_workspace(
@@ -209,16 +214,10 @@ def create_forks(
 
     for i in range(count):
         fork_name = f"{fork_prefix}-{i}"
-        try:
-            create_fork(
-                s3_client,
-                fork_name,
-                base_bucket,
-                snapshot_version=snapshot_id,
-            )
-        except Exception:
-            # Stop creating more forks; return what we have.
-            break
+        if not _try_create_fork(s3_client, fork_name, base_bucket, snapshot_id):
+            # Best-effort: skip this fork and try the rest so a single
+            # failure (e.g. a name collision) doesn't strand the others.
+            continue
         credentials = _provision_credentials(s3_client, fork_name, credentials_role)
         forks.append(Fork(bucket=fork_name, credentials=credentials))
 
@@ -396,6 +395,20 @@ def teardown_coordination(s3_client: S3Client, bucket: str) -> None:
     patch_bucket_settings(s3_client, bucket, {"object_notifications": {}})
 
 
+def _try_create_fork(
+    s3_client: S3Client,
+    fork_name: str,
+    base_bucket: str,
+    snapshot_id: str,
+) -> bool:
+    """Best-effort fork creation. Returns True on success, False on failure."""
+    try:
+        create_fork(s3_client, fork_name, base_bucket, snapshot_version=snapshot_id)
+    except Exception:
+        return False
+    return True
+
+
 def _provision_credentials(
     s3_client: S3Client, bucket: str, role: Optional[Role]
 ) -> Optional[Credentials]:
@@ -441,9 +454,15 @@ def _empty_versioned(s3_client: S3Client, bucket: str) -> bool:
 
 
 def _empty_unversioned(s3_client: S3Client, bucket: str) -> None:
-    """Empty a non-versioned bucket via list_objects_v2 — best-effort."""
+    """Empty a non-versioned bucket via list_objects_v2 — best-effort.
+
+    Each ``delete_object`` is independently suppressed so a single failure
+    doesn't abandon the rest of the page; otherwise ``teardown_workspace``
+    would raise ``BucketNotEmpty`` on the subsequent ``delete_bucket``.
+    """
     with suppress(Exception):
         paginator = s3_client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=bucket):
             for obj in page.get("Contents", []) or []:
-                s3_client.delete_object(Bucket=bucket, Key=obj["Key"])
+                with suppress(Exception):
+                    s3_client.delete_object(Bucket=bucket, Key=obj["Key"])
