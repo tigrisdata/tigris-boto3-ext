@@ -234,10 +234,32 @@ setup_coordination(
 teardown_coordination(s3_client, 'pipeline-bucket')
 ```
 
-> **Note**: TTL, webhook coordination, and scoped credentials all use
-> Tigris-specific REST endpoints (not S3): TTL/coordination via
-> `PATCH /{bucket}`, credentials via `https://iam.storageapi.dev/`. Override
-> the IAM endpoint with the `TIGRIS_IAM_ENDPOINT` env var.
+### 5. Object-event webhooks (lower-level)
+
+`setup_coordination` / `teardown_coordination` are agent-kit-flavored
+wrappers around the lower-level public functions for configuring webhook
+notifications on any bucket:
+
+```python
+from tigris_boto3_ext import set_object_notifications, clear_object_notifications
+
+set_object_notifications(
+    s3_client,
+    'pipeline-bucket',
+    webhook_url='https://my-service.example/webhook',
+)
+
+clear_object_notifications(s3_client, 'pipeline-bucket')
+```
+
+> **Notes**: TTL on workspaces uses the standard S3
+> `PutBucketLifecycleConfiguration` API. Scoped credentials use the AWS-IAM
+> compatible IAM endpoint at `https://iam.storageapi.dev` (override via the
+> `TIGRIS_IAM_ENDPOINT` env var) — `create_workspace` / `create_forks`
+> issue a `CreateAccessKey` + bucket-scoped `CreatePolicy` +
+> `AttachUserPolicy` against the standard boto3 IAM client. Webhook
+> notifications are the only piece that uses a Tigris-specific
+> `PATCH /{bucket}` JSON endpoint.
 
 ## Complete Examples
 

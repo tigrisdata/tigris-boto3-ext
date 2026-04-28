@@ -2,11 +2,10 @@
 
 Mirrors the public surface of `@tigrisdata/agent-kit` (TypeScript) — workspaces,
 forks, checkpoints, and coordination — composed from this library's lower-level
-header-injection helpers and direct-HTTP REST helpers.
+header-injection helpers and standard S3 / IAM APIs.
 """
 
 import time
-import uuid
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -22,8 +21,7 @@ else:
     S3Client = object
     Role = str
 
-from ._iam import create_access_key_with_buckets_role, delete_access_key
-from ._rest import patch_bucket_settings
+from ._iam import create_scoped_access_key, delete_scoped_access_key
 from .helpers import (
     create_fork,
     create_snapshot,
@@ -31,14 +29,26 @@ from .helpers import (
     get_snapshot_version,
     list_snapshots,
 )
+from .object_notifications import (
+    clear_object_notifications,
+    set_object_notifications,
+)
 
 
 @dataclass
 class Credentials:
-    """A scoped Tigris access key for a workspace or fork."""
+    """A scoped Tigris access key for a workspace or fork.
+
+    The ``user_name`` and ``policy_arn`` fields are bookkeeping needed by
+    the teardown helpers to detach + delete the underlying IAM policy.
+    Compare/repr exclude them so equality and printing focus on the
+    user-facing key material.
+    """
 
     access_key_id: str
     secret_access_key: str
+    user_name: Optional[str] = field(default=None, compare=False, repr=False)
+    policy_arn: Optional[str] = field(default=None, compare=False, repr=False)
 
 
 @dataclass
@@ -124,16 +134,15 @@ def create_workspace(
         s3_client.create_bucket(Bucket=name)
 
     if ttl_days is not None:
-        rule_id = f"workspace-ttl-{uuid.uuid4().hex[:12]}"
-        patch_bucket_settings(
-            s3_client,
-            name,
-            {
-                "lifecycle_rules": [
+        s3_client.put_bucket_lifecycle_configuration(
+            Bucket=name,
+            LifecycleConfiguration={
+                "Rules": [
                     {
-                        "id": rule_id,
-                        "expiration": {"days": ttl_days, "enabled": True},
-                        "status": 1,
+                        "ID": "workspace-ttl",
+                        "Status": "Enabled",
+                        "Filter": {"Prefix": ""},
+                        "Expiration": {"Days": ttl_days},
                     },
                 ],
             },
@@ -158,7 +167,7 @@ def teardown_workspace(
     """
     if workspace.credentials is not None:
         with suppress(Exception):
-            delete_access_key(s3_client, workspace.credentials.access_key_id)
+            _revoke(s3_client, workspace.credentials)
     if force:
         _empty_bucket(s3_client, workspace.bucket)
     s3_client.delete_bucket(Bucket=workspace.bucket)
@@ -218,7 +227,10 @@ def create_forks(
             # Best-effort: skip this fork and try the rest so a single
             # failure (e.g. a name collision) doesn't strand the others.
             continue
-        credentials = _provision_credentials(s3_client, fork_name, credentials_role)
+        # Provision credentials best-effort: the bucket already exists, so
+        # we always append the Fork even if credential provisioning fails —
+        # otherwise the caller has no handle to tear down the bucket.
+        credentials = _try_provision_credentials(s3_client, fork_name, credentials_role)
         forks.append(Fork(bucket=fork_name, credentials=credentials))
 
     if not forks:
@@ -243,7 +255,7 @@ def teardown_forks(
     for fork in fork_set.forks:
         if fork.credentials is not None:
             with suppress(Exception):
-                delete_access_key(s3_client, fork.credentials.access_key_id)
+                _revoke(s3_client, fork.credentials)
         if force:
             _empty_bucket(s3_client, fork.bucket)
         with suppress(Exception):
@@ -342,57 +354,23 @@ def setup_coordination(
 ) -> None:
     """Configure a webhook that fires on object events in a bucket.
 
-    Tigris will POST to ``webhook_url`` when objects are created, deleted, or
-    modified.
-
-    Args:
-        s3_client: boto3 S3 client.
-        bucket: Bucket to configure notifications on.
-        webhook_url: HTTP/HTTPS endpoint that will receive notifications.
-        event_filter: Optional Tigris filter expression
-            (e.g. ``'WHERE `key` REGEXP "^results/"'``).
-        auth_token: Bearer token sent with each webhook request. Mutually
-            exclusive with basic auth.
-        auth_username: HTTP basic auth username; must be paired with
-            ``auth_password``.
-        auth_password: HTTP basic auth password; must be paired with
-            ``auth_username``.
-
-    Raises:
-        ValueError: For invalid arguments (empty webhook url, mixed auth modes,
-            partial basic-auth credentials).
+    Thin wrapper around :func:`tigris_boto3_ext.set_object_notifications` —
+    surfaced here for the agent-kit workflow vocabulary.
     """
-    if not webhook_url:
-        msg = "webhook_url is required"
-        raise ValueError(msg)
-    if auth_token is not None and (
-        auth_username is not None or auth_password is not None
-    ):
-        msg = "auth_token cannot be combined with auth_username/auth_password"
-        raise ValueError(msg)
-    if (auth_username is None) != (auth_password is None):
-        msg = "auth_username and auth_password must be provided together"
-        raise ValueError(msg)
-
-    notification: dict[str, Any] = {
-        "enabled": True,
-        "web_hook": webhook_url,
-        "filter": event_filter or "",
-    }
-    if auth_token is not None:
-        notification["auth"] = {"token": auth_token}
-    elif auth_username is not None and auth_password is not None:
-        notification["auth"] = {
-            "basic_user": auth_username,
-            "basic_pass": auth_password,
-        }
-
-    patch_bucket_settings(s3_client, bucket, {"object_notifications": notification})
+    set_object_notifications(
+        s3_client,
+        bucket,
+        webhook_url=webhook_url,
+        event_filter=event_filter,
+        auth_token=auth_token,
+        auth_username=auth_username,
+        auth_password=auth_password,
+    )
 
 
 def teardown_coordination(s3_client: S3Client, bucket: str) -> None:
     """Remove webhook notifications from a bucket."""
-    patch_bucket_settings(s3_client, bucket, {"object_notifications": {}})
+    clear_object_notifications(s3_client, bucket)
 
 
 def _try_create_fork(
@@ -418,14 +396,43 @@ def _provision_credentials(
     if role not in ("Editor", "ReadOnly"):
         msg = f"credentials_role must be 'Editor' or 'ReadOnly', got {role!r}"
         raise ValueError(msg)
-    access_key = create_access_key_with_buckets_role(
-        s3_client,
-        f"{bucket}-key",
-        [{"bucket": bucket, "role": role}],
-    )
+    key = create_scoped_access_key(s3_client, f"{bucket}-key", bucket, role)
     return Credentials(
-        access_key_id=access_key["access_key_id"],
-        secret_access_key=access_key["secret_access_key"],
+        access_key_id=key["access_key_id"],
+        secret_access_key=key["secret_access_key"],
+        user_name=key.get("user_name"),
+        policy_arn=key.get("policy_arn"),
+    )
+
+
+def _try_provision_credentials(
+    s3_client: S3Client, bucket: str, role: Optional[Role]
+) -> Optional[Credentials]:
+    """Best-effort credential provisioning. Returns None on IAM failure.
+
+    Used during fork creation: the bucket already exists, so we don't want
+    a single IAM hiccup to strand the caller without a handle to the
+    bucket. The fork is still tracked (without credentials) so teardown
+    can clean it up.
+    """
+    if role is None:
+        return None
+    try:
+        return _provision_credentials(s3_client, bucket, role)
+    except ValueError:
+        # Programmer error (bad role); surface it.
+        raise
+    except Exception:
+        return None
+
+
+def _revoke(s3_client: S3Client, credentials: Credentials) -> None:
+    """Best-effort revocation of a scoped access key."""
+    delete_scoped_access_key(
+        s3_client,
+        access_key_id=credentials.access_key_id,
+        user_name=credentials.user_name,
+        policy_arn=credentials.policy_arn,
     )
 
 

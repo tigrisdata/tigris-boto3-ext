@@ -33,49 +33,38 @@ def s3_client():
 
 class TestCreateWorkspace:
     def test_basic_creates_plain_bucket(self, s3_client):
-        with (
-            patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap,
-            patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch,
-        ):
+        with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap:
             ws = create_workspace(s3_client, "ws-1")
         assert ws == Workspace(bucket="ws-1")
         mock_snap.assert_not_called()
-        mock_patch.assert_not_called()
         s3_client.create_bucket.assert_called_once_with(Bucket="ws-1")
+        s3_client.put_bucket_lifecycle_configuration.assert_not_called()
 
     def test_enable_snapshots_uses_helper(self, s3_client):
-        with (
-            patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap,
-            patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch,
-        ):
+        with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap:
             ws = create_workspace(s3_client, "ws-2", enable_snapshots=True)
         assert ws.bucket == "ws-2"
         mock_snap.assert_called_once_with(s3_client, "ws-2")
         s3_client.create_bucket.assert_not_called()
-        mock_patch.assert_not_called()
+        s3_client.put_bucket_lifecycle_configuration.assert_not_called()
 
     def test_ttl_days_sets_lifecycle_rule(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch:
-            create_workspace(s3_client, "ws-3", ttl_days=7)
+        create_workspace(s3_client, "ws-3", ttl_days=7)
 
-        mock_patch.assert_called_once()
-        bucket_arg = mock_patch.call_args.args[1]
-        body = mock_patch.call_args.args[2]
-        assert bucket_arg == "ws-3"
-        rules = body["lifecycle_rules"]
+        s3_client.put_bucket_lifecycle_configuration.assert_called_once()
+        kwargs = s3_client.put_bucket_lifecycle_configuration.call_args.kwargs
+        assert kwargs["Bucket"] == "ws-3"
+        rules = kwargs["LifecycleConfiguration"]["Rules"]
         assert len(rules) == 1
-        assert rules[0]["expiration"] == {"days": 7, "enabled": True}
-        assert rules[0]["status"] == 1
-        assert rules[0]["id"].startswith("workspace-ttl-")
+        assert rules[0]["Status"] == "Enabled"
+        assert rules[0]["Expiration"] == {"Days": 7}
+        assert rules[0]["Filter"] == {"Prefix": ""}
 
     def test_ttl_combined_with_snapshots(self, s3_client):
-        with (
-            patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap,
-            patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch,
-        ):
+        with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap:
             create_workspace(s3_client, "ws-4", ttl_days=1, enable_snapshots=True)
         mock_snap.assert_called_once_with(s3_client, "ws-4")
-        mock_patch.assert_called_once()
+        s3_client.put_bucket_lifecycle_configuration.assert_called_once()
 
     def test_zero_ttl_raises(self, s3_client):
         with pytest.raises(ValueError, match="ttl_days must be positive"):
@@ -351,83 +340,37 @@ class TestListCheckpoints:
 
 
 class TestSetupCoordination:
-    def test_minimal(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch:
-            setup_coordination(s3_client, "b", webhook_url="https://hook")
-        mock_patch.assert_called_once()
-        body = mock_patch.call_args.args[2]
-        assert body == {
-            "object_notifications": {
-                "enabled": True,
-                "web_hook": "https://hook",
-                "filter": "",
-            }
-        }
+    """Thin wrapper that delegates to set_object_notifications."""
 
-    def test_with_filter(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch:
+    def test_passes_args_through(self, s3_client):
+        with patch(
+            "tigris_boto3_ext.agent_kit.set_object_notifications"
+        ) as mock_set:
             setup_coordination(
                 s3_client,
                 "b",
                 webhook_url="https://hook",
-                event_filter='WHERE `key` REGEXP "^results/"',
+                event_filter="f",
+                auth_token="t",  # noqa: S106
             )
-        body = mock_patch.call_args.args[2]
-        assert body["object_notifications"]["filter"] == 'WHERE `key` REGEXP "^results/"'
-
-    def test_with_token_auth(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch:
-            setup_coordination(
-                s3_client, "b", webhook_url="https://hook", auth_token="tok"
-            )
-        body = mock_patch.call_args.args[2]
-        assert body["object_notifications"]["auth"] == {"token": "tok"}
-
-    def test_with_basic_auth(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch:
-            setup_coordination(
-                s3_client,
-                "b",
-                webhook_url="https://hook",
-                auth_username="u",
-                auth_password="p",
-            )
-        body = mock_patch.call_args.args[2]
-        assert body["object_notifications"]["auth"] == {
-            "basic_user": "u",
-            "basic_pass": "p",
-        }
-
-    def test_empty_url_raises(self, s3_client):
-        with pytest.raises(ValueError, match="webhook_url is required"):
-            setup_coordination(s3_client, "b", webhook_url="")
-
-    def test_token_with_basic_raises(self, s3_client):
-        with pytest.raises(ValueError, match="cannot be combined"):
-            setup_coordination(
-                s3_client,
-                "b",
-                webhook_url="https://hook",
-                auth_token="t",
-                auth_username="u",
-                auth_password="p",
-            )
-
-    def test_partial_basic_auth_raises(self, s3_client):
-        with pytest.raises(ValueError, match="must be provided together"):
-            setup_coordination(
-                s3_client,
-                "b",
-                webhook_url="https://hook",
-                auth_username="u",
-            )
+        mock_set.assert_called_once_with(
+            s3_client,
+            "b",
+            webhook_url="https://hook",
+            event_filter="f",
+            auth_token="t",  # noqa: S106
+            auth_username=None,
+            auth_password=None,
+        )
 
 
 class TestTeardownCoordination:
     def test_clears_notifications(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.patch_bucket_settings") as mock_patch:
+        with patch(
+            "tigris_boto3_ext.agent_kit.clear_object_notifications"
+        ) as mock_clear:
             teardown_coordination(s3_client, "b")
-        mock_patch.assert_called_once_with(s3_client, "b", {"object_notifications": {}})
+        mock_clear.assert_called_once_with(s3_client, "b")
 
 
 # -- Credentials --
@@ -435,16 +378,17 @@ class TestTeardownCoordination:
 
 def _ak(name="bucket-key"):
     return {
-        "access_key_id": "AKIAEXAMPLE",
+        "access_key_id": f"AKIA-{name}",
         "secret_access_key": "supersecret",  # noqa: S106
-        "name": name,
+        "user_name": "auto",
+        "policy_arn": f"arn:policy/{name}",
     }
 
 
 class TestCreateWorkspaceCredentials:
     def test_no_role_no_credentials(self, s3_client):
         with patch(
-            "tigris_boto3_ext.agent_kit.create_access_key_with_buckets_role"
+            "tigris_boto3_ext.agent_kit.create_scoped_access_key"
         ) as mock_create:
             ws = create_workspace(s3_client, "ws-x")
         mock_create.assert_not_called()
@@ -452,28 +396,28 @@ class TestCreateWorkspaceCredentials:
 
     def test_editor_role_provisions_key(self, s3_client):
         with patch(
-            "tigris_boto3_ext.agent_kit.create_access_key_with_buckets_role",
+            "tigris_boto3_ext.agent_kit.create_scoped_access_key",
             return_value=_ak("ws-1-key"),
         ) as mock_create:
             ws = create_workspace(s3_client, "ws-1", credentials_role="Editor")
 
         mock_create.assert_called_once_with(
-            s3_client, "ws-1-key", [{"bucket": "ws-1", "role": "Editor"}]
+            s3_client, "ws-1-key", "ws-1", "Editor"
         )
         assert ws.credentials == Credentials(
-            access_key_id="AKIAEXAMPLE",
+            access_key_id="AKIA-ws-1-key",
             secret_access_key="supersecret",  # noqa: S106
+            user_name="auto",
+            policy_arn="arn:policy/ws-1-key",
         )
 
     def test_readonly_role_provisions_key(self, s3_client):
         with patch(
-            "tigris_boto3_ext.agent_kit.create_access_key_with_buckets_role",
+            "tigris_boto3_ext.agent_kit.create_scoped_access_key",
             return_value=_ak(),
         ) as mock_create:
             create_workspace(s3_client, "ws-2", credentials_role="ReadOnly")
-        assert (
-            mock_create.call_args.args[2][0]["role"] == "ReadOnly"
-        )
+        assert mock_create.call_args.args[3] == "ReadOnly"
 
     def test_invalid_role_raises(self, s3_client):
         with pytest.raises(ValueError, match="must be 'Editor' or 'ReadOnly'"):
@@ -488,13 +432,20 @@ class TestTeardownWorkspaceCredentials:
             credentials=Credentials(
                 access_key_id="AKIA",
                 secret_access_key="s",  # noqa: S106
+                user_name="auto",
+                policy_arn="arn:policy/p",
             ),
         )
         with patch(
-            "tigris_boto3_ext.agent_kit.delete_access_key"
+            "tigris_boto3_ext.agent_kit.delete_scoped_access_key"
         ) as mock_delete:
             teardown_workspace(s3_client, ws)
-        mock_delete.assert_called_once_with(s3_client, "AKIA")
+        mock_delete.assert_called_once_with(
+            s3_client,
+            access_key_id="AKIA",
+            user_name="auto",
+            policy_arn="arn:policy/p",
+        )
         s3_client.delete_bucket.assert_called_once_with(Bucket="ws-1")
 
     def test_revoke_failure_still_deletes_bucket(self, s3_client):
@@ -504,10 +455,12 @@ class TestTeardownWorkspaceCredentials:
             credentials=Credentials(
                 access_key_id="AKIA",
                 secret_access_key="s",  # noqa: S106
+                user_name="auto",
+                policy_arn="arn:policy/p",
             ),
         )
         with patch(
-            "tigris_boto3_ext.agent_kit.delete_access_key",
+            "tigris_boto3_ext.agent_kit.delete_scoped_access_key",
             side_effect=RuntimeError("iam down"),
         ):
             teardown_workspace(s3_client, ws)
@@ -523,7 +476,7 @@ class TestCreateForksCredentials:
             ),
             patch("tigris_boto3_ext.agent_kit.create_fork"),
             patch(
-                "tigris_boto3_ext.agent_kit.create_access_key_with_buckets_role",
+                "tigris_boto3_ext.agent_kit.create_scoped_access_key",
                 side_effect=[_ak("f-0-key"), _ak("f-1-key")],
             ) as mock_create,
         ):
@@ -534,12 +487,53 @@ class TestCreateForksCredentials:
         assert mock_create.call_count == 2
         for fork in result.forks:
             assert fork.credentials is not None
-            assert fork.credentials.access_key_id == "AKIAEXAMPLE"
-        assert mock_create.call_args_list[0].args[1] == "f-0-key"
-        assert mock_create.call_args_list[1].args[1] == "f-1-key"
-        assert mock_create.call_args_list[0].args[2] == [
-            {"bucket": "f-0", "role": "ReadOnly"}
-        ]
+        # First call: name="f-0-key", bucket="f-0", role="ReadOnly"
+        first = mock_create.call_args_list[0].args
+        assert first[1] == "f-0-key"
+        assert first[2] == "f-0"
+        assert first[3] == "ReadOnly"
+
+    def test_invalid_role_propagates(self, s3_client):
+        """ValueError on bad role is a programmer error and must surface."""
+        with (
+            patch("tigris_boto3_ext.agent_kit.create_snapshot", return_value={}),
+            patch(
+                "tigris_boto3_ext.agent_kit.get_snapshot_version", return_value="v1"
+            ),
+            patch("tigris_boto3_ext.agent_kit.create_fork"),
+        ):
+            with pytest.raises(ValueError, match="must be 'Editor' or 'ReadOnly'"):
+                create_forks(
+                    s3_client, "base", 1, prefix="f", credentials_role="Admin"
+                )
+
+    def test_credential_failure_still_appends_fork(self, s3_client):
+        """If credential provisioning fails, the fork bucket is still tracked."""
+        with (
+            patch("tigris_boto3_ext.agent_kit.create_snapshot", return_value={}),
+            patch(
+                "tigris_boto3_ext.agent_kit.get_snapshot_version", return_value="v1"
+            ),
+            patch("tigris_boto3_ext.agent_kit.create_fork"),
+            patch(
+                "tigris_boto3_ext.agent_kit.create_scoped_access_key",
+                side_effect=[
+                    _ak("f-0-key"),
+                    RuntimeError("iam down"),
+                    _ak("f-2-key"),
+                ],
+            ),
+        ):
+            result = create_forks(
+                s3_client, "base", 3, prefix="f", credentials_role="Editor"
+            )
+
+        # All three fork buckets are tracked so teardown can clean them up.
+        assert [f.bucket for f in result.forks] == ["f-0", "f-1", "f-2"]
+        # The middle fork has no credentials but is still in the list.
+        assert result.forks[0].credentials is not None
+        assert result.forks[1].credentials is None
+        assert result.forks[2].credentials is not None
 
 
 class TestEmptyBucket:
@@ -626,6 +620,8 @@ class TestTeardownForksCredentials:
                     credentials=Credentials(
                         access_key_id="AKIA0",
                         secret_access_key="s",  # noqa: S106
+                        user_name="auto",
+                        policy_arn="arn:0",
                     ),
                 ),
                 Fork(
@@ -633,13 +629,17 @@ class TestTeardownForksCredentials:
                     credentials=Credentials(
                         access_key_id="AKIA1",
                         secret_access_key="s",  # noqa: S106
+                        user_name="auto",
+                        policy_arn="arn:1",
                     ),
                 ),
             ],
         )
         with patch(
-            "tigris_boto3_ext.agent_kit.delete_access_key"
+            "tigris_boto3_ext.agent_kit.delete_scoped_access_key"
         ) as mock_delete:
             teardown_forks(s3_client, fs)
-        deleted_keys = [c.args[1] for c in mock_delete.call_args_list]
+        deleted_keys = [
+            c.kwargs["access_key_id"] for c in mock_delete.call_args_list
+        ]
         assert deleted_keys == ["AKIA0", "AKIA1"]

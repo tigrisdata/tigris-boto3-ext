@@ -83,6 +83,10 @@ strict_equality = true
 module = "mypy_boto3_s3.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "mypy_boto3_iam.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

@@ -1,204 +1,170 @@
-"""Tigris IAM HTTP transport for managing access keys.
+"""Internal IAM helpers for provisioning bucket-scoped Tigris access keys.
 
-Tigris IAM lives at a separate endpoint from the S3 API and uses an
-AWS-IAM-compatible POST + form-encoded request format with custom Tigris
-extensions for bucket-scoped access keys.
+Tigris IAM is AWS-IAM-compatible, so we use the standard boto3 IAM client
+pointed at ``https://iam.storageapi.dev`` (override with the
+``TIGRIS_IAM_ENDPOINT`` env var). The bucket-scoped key flow is:
 
-This module provides the minimum needed to support agent-kit's
-``credentials_role`` option — creating and deleting an access key — by
-posting to ``https://iam.storageapi.dev/`` (override with the
-``TIGRIS_IAM_ENDPOINT`` env var) signed with the boto3 client's credentials
-under the ``iam`` SigV4 service.
+    1. ``create_access_key()``  — gets a fresh access key under Tigris's
+       implicit ``"auto"`` user. The response carries the user name we
+       need for subsequent calls.
+    2. ``create_policy(PolicyName, PolicyDocument)`` — a bucket-scoped
+       policy that grants the requested role (Editor → s3:*, ReadOnly →
+       GetObject/ListBucket).
+    3. ``attach_user_policy(UserName, PolicyArn)`` — wires the policy to
+       the access-key user.
+
+Teardown reverses the sequence (detach → delete policy → delete access key).
 """
 
-import hashlib
 import json
 import os
-import uuid
-import xml.etree.ElementTree as ET
-from http import HTTPStatus
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Optional
-from urllib.parse import urlencode
 
-import urllib3
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
+import boto3
 
 if TYPE_CHECKING:
+    from mypy_boto3_iam.client import IAMClient
     from mypy_boto3_s3.client import S3Client
 else:
+    IAMClient = object
     S3Client = object
 
 
-_iam_pool = urllib3.PoolManager(num_pools=2, maxsize=4)
-
-
 DEFAULT_IAM_ENDPOINT = "https://iam.storageapi.dev"
-
-
-class TigrisIAMError(Exception):
-    """Raised when a Tigris IAM request fails."""
-
-    def __init__(self, message: str, status_code: int, body: str) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.body = body
 
 
 def _iam_endpoint() -> str:
     return os.environ.get("TIGRIS_IAM_ENDPOINT") or DEFAULT_IAM_ENDPOINT
 
 
-def _post_form(
-    s3_client: S3Client,
-    path_and_query: str,
-    form: dict[str, str],
-) -> bytes:
-    """Sign and POST a form-encoded body to the IAM endpoint. Returns raw bytes.
-
-    `path_and_query` is everything after the host (e.g. ``"/?Action=DeleteAccessKey"``).
-    """
-    credentials = s3_client._request_signer._credentials.get_frozen_credentials()  # type: ignore[attr-defined]  # noqa: SLF001
-    region = s3_client.meta.region_name or "auto"
-
-    url = f"{_iam_endpoint().rstrip('/')}{path_and_query}"
-    payload = urlencode(form)
-
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json",
-        "X-Amz-Content-Sha256": hashlib.sha256(payload.encode()).hexdigest(),
-    }
-
-    request = AWSRequest(method="POST", url=url, data=payload, headers=headers)
-    SigV4Auth(credentials, "iam", region).add_auth(request)
-    prepared = request.prepare()
-
-    response = _iam_pool.urlopen(
-        prepared.method,
-        prepared.url,
-        body=prepared.body,
-        headers=dict(prepared.headers),
+def _build_iam_client(s3_client: S3Client) -> IAMClient:
+    """Build a boto3 IAM client reusing the S3 client's credentials and region."""
+    creds = s3_client._request_signer._credentials.get_frozen_credentials()  # type: ignore[attr-defined]  # noqa: SLF001
+    return boto3.client(
+        "iam",
+        endpoint_url=_iam_endpoint(),
+        aws_access_key_id=creds.access_key,
+        aws_secret_access_key=creds.secret_key,
+        aws_session_token=creds.token,
+        region_name=s3_client.meta.region_name or "auto",
     )
 
-    raw = response.data or b""
 
-    if response.status >= HTTPStatus.BAD_REQUEST:
-        text = raw.decode("utf-8", errors="replace") if raw else ""
-        msg = f"Tigris IAM request failed (HTTP {response.status}): {text}"
-        raise TigrisIAMError(msg, status_code=response.status, body=text)
+def _policy_document(bucket: str, role: str) -> str:
+    """Build a bucket-scoped IAM policy document for the given role."""
+    if role == "Editor":
+        actions: Any = "s3:*"
+    elif role == "ReadOnly":
+        actions = [
+            "s3:GetObject",
+            "s3:ListBucket",
+            "s3:GetBucketLocation",
+        ]
+    else:
+        msg = f"role must be 'Editor' or 'ReadOnly', got {role!r}"
+        raise ValueError(msg)
 
-    return raw
+    return json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": actions,
+                    "Resource": [
+                        f"arn:aws:s3:::{bucket}",
+                        f"arn:aws:s3:::{bucket}/*",
+                    ],
+                },
+            ],
+        }
+    )
 
 
-def create_access_key_with_buckets_role(
+def create_scoped_access_key(
     s3_client: S3Client,
     name: str,
-    buckets_role: list[dict[str, str]],
-) -> dict[str, Any]:
-    """Create a Tigris access key scoped to one or more buckets.
+    bucket: str,
+    role: str,
+) -> dict[str, str]:
+    """Create a bucket-scoped Tigris access key.
 
     Args:
         s3_client: boto3 S3 client. Credentials and region are reused.
-        name: Display name for the new access key.
-        buckets_role: List of ``{"bucket": str, "role": "Editor" | "ReadOnly"}``.
+        name: Logical name. Used as the policy name (suffixed with
+            ``-policy``) and any other naming hooks.
+        bucket: Bucket the access key should be scoped to.
+        role: ``"Editor"`` or ``"ReadOnly"``.
 
     Returns:
-        ``{"access_key_id": str, "secret_access_key": str, "name": str}``.
+        Dict with ``access_key_id``, ``secret_access_key``, ``user_name``,
+        and ``policy_arn`` — the last two are needed for teardown.
 
     Raises:
-        TigrisIAMError: On non-2xx responses.
-        RuntimeError: If the response shape is missing the access key fields.
+        ValueError: If ``role`` is not a recognized value.
+        botocore.exceptions.ClientError: On IAM-side failures.
     """
-    req_body = {
-        "req_uuid": str(uuid.uuid4()),
-        "name": name,
-        "buckets_role": buckets_role,
-    }
-    raw = _post_form(
-        s3_client,
-        "/?Action=CreateAccessKeyWithBucketsRole",
-        {"Req": json.dumps(req_body)},
-    )
+    iam = _build_iam_client(s3_client)
+    policy_doc = _policy_document(bucket, role)
 
-    access_key = _parse_create_access_key_response(raw)
-    if access_key is None:
-        msg = f"Tigris IAM CreateAccessKey returned an unexpected response: {raw!r}"
-        raise RuntimeError(msg)
-    return access_key
+    key_resp = iam.create_access_key()
+    access_key = key_resp["AccessKey"]
+    access_key_id = access_key["AccessKeyId"]
+    secret = access_key["SecretAccessKey"]
 
+    # Tigris IAM treats the access key id as the addressable "user" for
+    # AttachUserPolicy. The UserName field in create_access_key's response
+    # (typically "auto") is informational, not the handle to use here.
+    policy_arn: Optional[str] = None
+    try:
+        policy_resp = iam.create_policy(
+            PolicyName=f"{name}-policy",
+            PolicyDocument=policy_doc,
+        )
+        policy_arn = policy_resp["Policy"]["Arn"]
+        iam.attach_user_policy(UserName=access_key_id, PolicyArn=policy_arn)
+    except Exception:
+        # If policy creation/attach fails, roll back the bare access key
+        # so we don't leak unscoped credentials.
+        with suppress(Exception):
+            iam.delete_access_key(AccessKeyId=access_key_id)
+        if policy_arn is not None:
+            with suppress(Exception):
+                iam.delete_policy(PolicyArn=policy_arn)
+        raise
 
-def delete_access_key(s3_client: S3Client, access_key_id: str) -> None:
-    """Delete a Tigris access key by id.
-
-    Mirrors the AWS IAM ``DeleteAccessKey`` action.
-    """
-    _post_form(
-        s3_client,
-        "/?Action=DeleteAccessKey",
-        {
-            "Action": "DeleteAccessKey",
-            "Version": "2010-05-08",
-            "AccessKeyId": access_key_id,
-        },
-    )
-
-
-def _parse_create_access_key_response(raw: bytes) -> Optional[dict[str, Any]]:
-    """Parse the CreateAccessKey response (JSON or AWS-style XML)."""
-    if not raw:
-        return None
-
-    text = raw.decode("utf-8", errors="replace").strip()
-    fields = (
-        _parse_create_access_key_json(text)
-        if text.startswith("{")
-        else _parse_create_access_key_xml(text)
-    )
-    if fields is None:
-        return None
-    access_key_id, secret, user_name = fields
-    if not access_key_id or not secret:
-        return None
     return {
         "access_key_id": access_key_id,
         "secret_access_key": secret,
-        "name": user_name,
+        "user_name": access_key_id,
+        "policy_arn": policy_arn,
     }
 
 
-def _parse_create_access_key_json(
-    text: str,
-) -> Optional[tuple[str, str, str]]:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    access_key = data.get("CreateAccessKeyResult", {}).get("AccessKey")
-    if not isinstance(access_key, dict):
-        return None
-    return (
-        access_key.get("AccessKeyId", ""),
-        access_key.get("SecretAccessKey", ""),
-        access_key.get("UserName", ""),
-    )
+def delete_scoped_access_key(
+    s3_client: S3Client,
+    *,
+    access_key_id: str,
+    user_name: Optional[str] = None,
+    policy_arn: Optional[str] = None,
+) -> None:
+    """Tear down a bucket-scoped Tigris access key.
 
+    Best-effort: each step is independently suppressed so a single IAM
+    failure can't strand the rest. Order matters — detach before deleting
+    the policy and the key.
+    """
+    iam = _build_iam_client(s3_client)
 
-def _parse_create_access_key_xml(
-    text: str,
-) -> Optional[tuple[str, str, str]]:
-    # Tigris IAM endpoint is authenticated; XML is from a trusted source.
-    try:
-        root = ET.fromstring(text)  # noqa: S314
-    except ET.ParseError:
-        return None
-    tag_to_text: dict[str, str] = {}
-    for elem in root.iter():
-        local = elem.tag.split("}", 1)[-1]
-        if elem.text is not None:
-            tag_to_text[local] = elem.text
-    return (
-        tag_to_text.get("AccessKeyId", ""),
-        tag_to_text.get("SecretAccessKey", ""),
-        tag_to_text.get("UserName", ""),
-    )
+    # Tigris IAM uses the access key id itself as the "user" handle for
+    # AttachUserPolicy / DetachUserPolicy.
+    detach_user = user_name or access_key_id
+
+    if policy_arn:
+        with suppress(Exception):
+            iam.detach_user_policy(UserName=detach_user, PolicyArn=policy_arn)
+        with suppress(Exception):
+            iam.delete_policy(PolicyArn=policy_arn)
+    with suppress(Exception):
+        iam.delete_access_key(AccessKeyId=access_key_id)
