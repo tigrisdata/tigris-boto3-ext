@@ -11,10 +11,10 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 ## Features
 
 - **Bundle API**: Fetch thousands of objects in a single request as a streaming tar archive — designed for ML training workloads
-- **Bundle API**: Fetch thousands of objects in a single request as a streaming tar archive — designed for ML training workloads
 - **Snapshot Support**: Create, list, and read from bucket snapshots
 - **Bucket Forking**: Create forked buckets from existing buckets or snapshots
-- **Multiple Usage Patterns**: Context managers, decorators, helper functions, or wrapper client
+- **Agent Kit**: High-level workflow helpers for AI agents — workspaces, parallel forks, checkpoints, and event-driven coordination
+- **Multiple Usage Patterns**: Context managers, decorators, helper functions
 - **Zero Configuration**: Works with existing boto3 code
 - **Type Safe**: Full type hints for IDE support
 - **Pythonic API**: Uses familiar Python patterns
@@ -139,6 +139,127 @@ obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
 objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='data/')
 metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
 ```
+
+### 4. Agent Kit
+
+Higher-level workflows for AI agents — workspaces, parallel forks, checkpoints,
+and event-driven coordination — composed on top of snapshots and forks. Mirrors
+the [`@tigrisdata/agent-kit`](https://github.com/tigrisdata/storage/tree/main/packages/agent-kit) TypeScript package.
+
+#### Workspaces
+
+A workspace is a dedicated bucket for a single agent, with optional TTL for
+auto-cleanup, optional snapshot support for checkpointing, and an optional
+scoped Tigris access key for least-privilege access.
+
+```python
+from tigris_boto3_ext import create_workspace, teardown_workspace
+
+ws = create_workspace(
+    s3_client,
+    'agent-abc',
+    ttl_days=1,                  # auto-expire objects after 1 day
+    enable_snapshots=True,       # allow checkpointing later
+    credentials_role='Editor',   # provision a scoped access key
+)
+
+# ws.bucket — bucket name
+# ws.credentials.access_key_id / secret_access_key — scoped key (if requested)
+
+teardown_workspace(s3_client, ws)  # revokes credentials, empties, deletes
+```
+
+#### Forks (parallel agent runs)
+
+Snapshot a bucket, then fork it `count` times. Each fork is its own bucket,
+created instantly via copy-on-write — agents can read/write without affecting
+the base bucket or each other.
+
+```python
+from tigris_boto3_ext import create_forks, teardown_forks
+
+forks = create_forks(
+    s3_client,
+    'training-data',
+    count=3,
+    prefix='exp-42',
+    credentials_role='ReadOnly',  # one scoped key per fork (optional)
+)
+
+for fork in forks.forks:
+    print(fork.bucket)  # 'exp-42-0', 'exp-42-1', 'exp-42-2'
+    # fork.credentials.access_key_id / secret_access_key (if requested)
+
+teardown_forks(s3_client, forks)
+```
+
+#### Checkpoints
+
+Capture a labeled snapshot you can later restore from. Restoring creates a new
+fork at that point in time; the original bucket is untouched.
+
+```python
+from tigris_boto3_ext import checkpoint, restore, list_checkpoints
+
+ck = checkpoint(s3_client, 'training-data', name='epoch-50')
+print(ck.snapshot_id)
+
+# Later — restore into a fresh fork
+restored_bucket = restore(
+    s3_client, 'training-data', ck.snapshot_id, fork_name='retry-1'
+)
+
+# List all checkpoints on a bucket
+for c in list_checkpoints(s3_client, 'training-data'):
+    print(c.snapshot_id, c.name, c.created_at)
+```
+
+#### Coordination
+
+Configure webhook notifications on object events to drive event-driven
+multi-agent pipelines without polling.
+
+```python
+from tigris_boto3_ext import setup_coordination, teardown_coordination
+
+setup_coordination(
+    s3_client,
+    'pipeline-bucket',
+    webhook_url='https://my-service.example/webhook',
+    event_filter='WHERE `key` REGEXP "^results/"',
+    auth_token='my-webhook-secret',
+)
+
+# Disable
+teardown_coordination(s3_client, 'pipeline-bucket')
+```
+
+### 5. Object-event webhooks (lower-level)
+
+`setup_coordination` / `teardown_coordination` are agent-kit-flavored
+wrappers around the lower-level public functions for configuring webhook
+notifications on any bucket:
+
+```python
+from tigris_boto3_ext import set_object_notifications, clear_object_notifications
+
+set_object_notifications(
+    s3_client,
+    'pipeline-bucket',
+    webhook_url='https://my-service.example/webhook',
+)
+
+clear_object_notifications(s3_client, 'pipeline-bucket')
+```
+
+> **Notes**: TTL on workspaces uses the standard S3
+> `PutBucketLifecycleConfiguration` API. Scoped credentials use the AWS-IAM
+> compatible IAM endpoint at `https://iam.storageapi.dev` (override via the
+> `TIGRIS_IAM_ENDPOINT` env var) — `create_workspace` / `create_forks`
+> issue a `CreateAccessKey` + bucket-scoped `CreatePolicy` +
+> `AttachUserPolicy` against the standard boto3 IAM client. Webhook
+> notifications are the only piece that uses a Tigris-specific
+> `PATCH /{bucket}` JSON endpoint.
 
 ## Complete Examples
 
