@@ -423,6 +423,22 @@ class TestCreateWorkspaceCredentials:
         with pytest.raises(ValueError, match="must be 'Editor' or 'ReadOnly'"):
             create_workspace(s3_client, "ws-bad", credentials_role="Admin")
 
+    def test_invalid_role_does_not_create_bucket(self, s3_client):
+        """Bad role must fail before any bucket-creating S3 call (no leak)."""
+        with patch(
+            "tigris_boto3_ext.agent_kit.create_snapshot_bucket"
+        ) as mock_snap:
+            with pytest.raises(ValueError, match="must be 'Editor' or 'ReadOnly'"):
+                create_workspace(
+                    s3_client,
+                    "ws-bad",
+                    enable_snapshots=True,
+                    credentials_role="Admin",
+                )
+        mock_snap.assert_not_called()
+        s3_client.create_bucket.assert_not_called()
+        s3_client.put_bucket_lifecycle_configuration.assert_not_called()
+
 
 class TestTeardownWorkspaceCredentials:
     def test_revokes_then_deletes(self, s3_client):
@@ -493,19 +509,18 @@ class TestCreateForksCredentials:
         assert first[2] == "f-0"
         assert first[3] == "ReadOnly"
 
-    def test_invalid_role_propagates(self, s3_client):
-        """ValueError on bad role is a programmer error and must surface."""
+    def test_invalid_role_does_not_create_snapshot(self, s3_client):
+        """Bad role must fail before snapshot/fork creation (no leak)."""
         with (
-            patch("tigris_boto3_ext.agent_kit.create_snapshot", return_value={}),
-            patch(
-                "tigris_boto3_ext.agent_kit.get_snapshot_version", return_value="v1"
-            ),
-            patch("tigris_boto3_ext.agent_kit.create_fork"),
+            patch("tigris_boto3_ext.agent_kit.create_snapshot") as mock_snap,
+            patch("tigris_boto3_ext.agent_kit.create_fork") as mock_fork,
         ):
             with pytest.raises(ValueError, match="must be 'Editor' or 'ReadOnly'"):
                 create_forks(
                     s3_client, "base", 1, prefix="f", credentials_role="Admin"
                 )
+        mock_snap.assert_not_called()
+        mock_fork.assert_not_called()
 
     def test_credential_failure_still_appends_fork(self, s3_client):
         """If credential provisioning fails, the fork bucket is still tracked."""

@@ -127,6 +127,7 @@ def create_workspace(
     if ttl_days is not None and ttl_days <= 0:
         msg = f"ttl_days must be positive, got {ttl_days}"
         raise ValueError(msg)
+    _validate_role(credentials_role)
 
     if enable_snapshots:
         create_snapshot_bucket(s3_client, name)
@@ -211,6 +212,7 @@ def create_forks(
     if count < 1:
         msg = f"count must be >= 1, got {count}"
         raise ValueError(msg)
+    _validate_role(credentials_role)
 
     snapshot_response = create_snapshot(s3_client, base_bucket)
     snapshot_id = get_snapshot_version(snapshot_response)
@@ -387,15 +389,23 @@ def _try_create_fork(
     return True
 
 
+def _validate_role(role: Optional[Role]) -> None:
+    """Validate ``credentials_role`` upfront so a bad value can't strand a bucket.
+
+    Called *before* any bucket-creating S3 call: otherwise the caller would
+    get an exception on a bucket they were never handed back, leaking it.
+    """
+    if role is not None and role not in ("Editor", "ReadOnly"):
+        msg = f"credentials_role must be 'Editor' or 'ReadOnly', got {role!r}"
+        raise ValueError(msg)
+
+
 def _provision_credentials(
     s3_client: S3Client, bucket: str, role: Optional[Role]
 ) -> Optional[Credentials]:
     """Create a Tigris scoped access key for ``bucket`` if a role is requested."""
     if role is None:
         return None
-    if role not in ("Editor", "ReadOnly"):
-        msg = f"credentials_role must be 'Editor' or 'ReadOnly', got {role!r}"
-        raise ValueError(msg)
     key = create_scoped_access_key(s3_client, f"{bucket}-key", bucket, role)
     return Credentials(
         access_key_id=key["access_key_id"],
@@ -413,15 +423,12 @@ def _try_provision_credentials(
     Used during fork creation: the bucket already exists, so we don't want
     a single IAM hiccup to strand the caller without a handle to the
     bucket. The fork is still tracked (without credentials) so teardown
-    can clean it up.
+    can clean it up. The role itself is validated upfront by the caller.
     """
     if role is None:
         return None
     try:
         return _provision_credentials(s3_client, bucket, role)
-    except ValueError:
-        # Programmer error (bad role); surface it.
-        raise
     except Exception:
         return None
 
