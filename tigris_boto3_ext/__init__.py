@@ -17,8 +17,13 @@ from .bundle import (
     BundleResponse,
     bundle_objects,
 )
-from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
-from .decorators import forked_from, snapshot_enabled, with_snapshot
+from .context_managers import (
+    TigrisFork,
+    TigrisRename,
+    TigrisSnapshot,
+    TigrisSnapshotEnabled,
+)
+from .decorators import forked_from, snapshot_enabled, with_rename, with_snapshot
 from .helpers import (
     create_fork,
     create_snapshot,
@@ -30,6 +35,7 @@ from .helpers import (
     head_object_from_snapshot,
     list_objects_from_snapshot,
     list_snapshots,
+    rename_object,
 )
 
 __version__ = "0.2.0"
@@ -49,10 +55,12 @@ __all__ = [
     "TigrisSnapshotEnabled",
     "TigrisSnapshot",
     "TigrisFork",
+    "TigrisRename",
     # Decorators
     "snapshot_enabled",
     "with_snapshot",
     "forked_from",
+    "with_rename",
     # Helper Functions
     "create_snapshot_bucket",
     "create_snapshot",
@@ -64,4 +72,5 @@ __all__ = [
     "head_object_from_snapshot",
     "has_snapshot_enabled",
     "get_bucket_info",
+    "rename_object",
 ]

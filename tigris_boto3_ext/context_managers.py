@@ -112,6 +112,49 @@ class TigrisSnapshot:
             injector.unregister()
 
 
+class TigrisRename:
+    """
+    Context manager that converts CopyObject calls into rename operations.
+
+    Tigris implements object rename as a CopyObject request with the
+    ``X-Tigris-Rename: true`` header. While this context manager is active,
+    every ``copy_object`` call made on the wrapped client becomes a rename
+    (no data is rewritten — only the key is updated). Scope the context
+    tightly to the rename call(s) so unrelated copies are not affected.
+
+    Usage:
+        with TigrisRename(s3_client):
+            s3_client.copy_object(
+                Bucket='my-bucket',
+                CopySource='my-bucket/old-key.txt',
+                Key='new-key.txt',
+            )
+    """
+
+    def __init__(self, s3_client: S3Client):
+        """
+        Initialize context manager.
+
+        Args:
+            s3_client: boto3 S3 client instance
+        """
+        self.client = s3_client
+        self._injector = create_header_injector(
+            s3_client,
+            "CopyObject",
+            {"X-Tigris-Rename": "true"},
+        )
+
+    def __enter__(self) -> "TigrisRename":
+        """Enter context and register event handler."""
+        self._injector.register()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit context and unregister event handler."""
+        self._injector.unregister()
+
+
 class TigrisFork:
     """
     Context manager for creating forked buckets.
