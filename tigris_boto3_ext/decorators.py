@@ -3,7 +3,12 @@
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar
 
-from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
+from .context_managers import (
+    TigrisFork,
+    TigrisRename,
+    TigrisSnapshot,
+    TigrisSnapshotEnabled,
+)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -71,6 +76,35 @@ def with_snapshot(
         return wrapper  # type: ignore
 
     return decorator
+
+
+def with_rename(func: F) -> F:
+    """
+    Decorator that converts CopyObject calls inside the function into rename
+    operations.
+
+    The decorated function must accept an s3_client as its first argument.
+    Any ``copy_object`` call made on that client during execution becomes a
+    Tigris rename (X-Tigris-Rename: true), so keep the function scope narrow.
+
+    Usage:
+        @with_rename
+        def rename_file(s3_client, bucket, old_key, new_key):
+            return s3_client.copy_object(
+                Bucket=bucket,
+                CopySource=f"{bucket}/{old_key}",
+                Key=new_key,
+            )
+
+        rename_file(s3_client, 'my-bucket', 'old.txt', 'new.txt')
+    """
+
+    @wraps(func)
+    def wrapper(s3_client: Any, *args: Any, **kwargs: Any) -> Any:
+        with TigrisRename(s3_client):
+            return func(s3_client, *args, **kwargs)
+
+    return wrapper  # type: ignore
 
 
 def forked_from(

@@ -8,7 +8,12 @@ else:
     S3Client = object
 
 from ._internal import create_header_injector
-from .context_managers import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
+from .context_managers import (
+    TigrisFork,
+    TigrisRename,
+    TigrisSnapshot,
+    TigrisSnapshotEnabled,
+)
 
 
 def create_snapshot_bucket(
@@ -151,6 +156,45 @@ def create_fork(
     """
     with TigrisFork(s3_client, source_bucket, snapshot_version):
         return cast("dict[str, Any]", s3_client.create_bucket(Bucket=new_bucket_name))
+
+
+def rename_object(
+    s3_client: S3Client,
+    bucket_name: str,
+    source_key: str,
+    destination_key: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """
+    Rename an object within a bucket without rewriting its data.
+
+    Tigris implements rename as a ``copy_object`` request with the
+    ``X-Tigris-Rename: true`` header. This helper scopes the header injection
+    to a single call so unrelated ``copy_object`` invocations are unaffected.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket containing the object
+        source_key: Current key of the object to rename
+        destination_key: New key for the object
+        **kwargs: Additional arguments to pass to ``copy_object``
+
+    Returns:
+        Response from the underlying ``copy_object`` operation
+
+    Usage:
+        rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
+    """
+    with TigrisRename(s3_client):
+        return cast(
+            "dict[str, Any]",
+            s3_client.copy_object(
+                Bucket=bucket_name,
+                CopySource=f"{bucket_name}/{source_key}",
+                Key=destination_key,
+                **kwargs,
+            ),
+        )
 
 
 def get_object_from_snapshot(
