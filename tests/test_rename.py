@@ -76,7 +76,7 @@ class TestRenameObjectHelper:
         assert result == {"ResponseMetadata": {}}
         mock_s3_client.copy_object.assert_called_once_with(
             Bucket="my-bucket",
-            CopySource="my-bucket/old-name.txt",
+            CopySource={"Bucket": "my-bucket", "Key": "old-name.txt"},
             Key="new-name.txt",
         )
         # Header injector must be unregistered when the helper returns.
@@ -94,7 +94,7 @@ class TestRenameObjectHelper:
 
         mock_s3_client.copy_object.assert_called_once_with(
             Bucket="my-bucket",
-            CopySource="my-bucket/old.txt",
+            CopySource={"Bucket": "my-bucket", "Key": "old.txt"},
             Key="new.txt",
             MetadataDirective="REPLACE",
             Metadata={"foo": "bar"},
@@ -110,6 +110,23 @@ class TestRenameObjectHelper:
 
         mock_s3_client.copy_object.assert_called_once_with(
             Bucket="my-bucket",
-            CopySource="my-bucket/dir/sub/old.txt",
+            CopySource={"Bucket": "my-bucket", "Key": "dir/sub/old.txt"},
             Key="dir/sub/new.txt",
+        )
+
+    def test_handles_keys_needing_url_encoding(self, mock_s3_client):
+        """Keys with characters that need percent-encoding (spaces, +, ?, #,
+        unicode) must be passed through the dict form so botocore encodes them
+        — the string form `bucket/key` would be treated as already-encoded."""
+        rename_object(
+            mock_s3_client,
+            "my-bucket",
+            "weird name + ?#%.txt",
+            "renamed.txt",
+        )
+
+        mock_s3_client.copy_object.assert_called_once_with(
+            Bucket="my-bucket",
+            CopySource={"Bucket": "my-bucket", "Key": "weird name + ?#%.txt"},
+            Key="renamed.txt",
         )

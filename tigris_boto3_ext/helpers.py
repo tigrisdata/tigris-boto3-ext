@@ -190,7 +190,10 @@ def rename_object(
             "dict[str, Any]",
             s3_client.copy_object(
                 Bucket=bucket_name,
-                CopySource=f"{bucket_name}/{source_key}",
+                # Dict form lets botocore percent-encode the key. The string
+                # form `bucket/key` is treated as already-encoded, so it
+                # corrupts keys containing spaces, '+', '?', '#', etc.
+                CopySource={"Bucket": bucket_name, "Key": source_key},
                 Key=destination_key,
                 **kwargs,
             ),

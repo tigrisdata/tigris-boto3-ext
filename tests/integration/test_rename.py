@@ -49,6 +49,23 @@ class TestRenameObjectHelper:
         assert not _object_exists(s3_client, rename_bucket, "dir/a.txt")
         assert _object_exists(s3_client, rename_bucket, "dir/b.txt")
 
+    def test_rename_works_with_special_character_keys(
+        self, s3_client, rename_bucket
+    ):
+        """Keys containing characters that need URL-encoding must round-trip
+        correctly — the helper passes CopySource as a dict so botocore
+        handles the encoding."""
+        src = "weird name + and #hash.txt"
+        dst = "renamed weird name.txt"
+        _put(s3_client, rename_bucket, src, b"payload")
+
+        rename_object(s3_client, rename_bucket, src, dst)
+
+        assert not _object_exists(s3_client, rename_bucket, src)
+        assert _object_exists(s3_client, rename_bucket, dst)
+        obj = s3_client.get_object(Bucket=rename_bucket, Key=dst)
+        assert obj["Body"].read() == b"payload"
+
 
 class TestRenameContextManager:
     def test_copy_object_inside_context_renames(self, s3_client, rename_bucket):
