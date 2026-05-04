@@ -343,3 +343,40 @@ def is_snapshot_enabled_header_set(headers: dict[str, Any]) -> bool:
     Check if the snapshot enabled header is set in the response headers.
     """
     return str(headers.get("x-tigris-enable-snapshot", "")).lower() == "true"
+
+
+def delete_bucket(
+    s3_client: S3Client,
+    bucket: str,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Delete a bucket, optionally using Tigris's force-delete extension.
+
+    With ``force=True`` the bucket is removed even when non-empty by sending
+    the ``Tigris-Force-Delete: true`` header — Tigris discards the contents
+    server-side, so callers don't need to enumerate and delete objects first.
+
+    Args:
+        s3_client: boto3 S3 client instance.
+        bucket: Name of the bucket to delete.
+        force: If True, force-delete a non-empty bucket via the Tigris
+            extension. Default False (standard S3 semantics: fails on
+            non-empty buckets).
+
+    Returns:
+        Response from the underlying ``delete_bucket`` operation.
+    """
+    if not force:
+        return cast("dict[str, Any]", s3_client.delete_bucket(Bucket=bucket))
+
+    injector = create_header_injector(
+        s3_client,
+        "DeleteBucket",
+        {"Tigris-Force-Delete": "true"},
+    )
+    try:
+        injector.register()
+        return cast("dict[str, Any]", s3_client.delete_bucket(Bucket=bucket))
+    finally:
+        injector.unregister()

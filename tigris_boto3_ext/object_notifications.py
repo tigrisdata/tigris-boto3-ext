@@ -90,12 +90,12 @@ def set_object_notifications(
             "basic_pass": auth_password,
         }
 
-    _patch_bucket(s3_client, bucket, {"object_notifications": notification})
+    _update_bucket_settings(s3_client, bucket, {"object_notifications": notification})
 
 
 def clear_object_notifications(s3_client: S3Client, bucket: str) -> None:
     """Disable webhook notifications on a bucket."""
-    _patch_bucket(s3_client, bucket, {"object_notifications": {}})
+    _update_bucket_settings(s3_client, bucket, {"object_notifications": {}})
 
 
 def _validate_webhook_url(url: str) -> None:
@@ -107,7 +107,7 @@ def _validate_webhook_url(url: str) -> None:
         raise ValueError(msg)
 
 
-def _patch_bucket(
+def _update_bucket_settings(
     s3_client: S3Client,
     bucket: str,
     body: dict[str, Any],

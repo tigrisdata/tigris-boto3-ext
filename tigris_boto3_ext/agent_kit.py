@@ -1,15 +1,18 @@
-"""High-level helpers for AI-agent storage workflows on Tigris.
+"""Agent-storage workflow helpers: workspaces, parallel forks, and checkpoints.
 
-Mirrors the public surface of `@tigrisdata/agent-kit` (TypeScript) — workspaces,
-forks, checkpoints, and coordination — composed from this library's lower-level
-header-injection helpers and standard S3 / IAM APIs.
+A workspace is a Tigris bucket dedicated to a single agent — created with
+snapshots enabled by default, optional TTL via the standard S3 lifecycle
+API, and an optional bucket-scoped IAM access key. Forks are N independent
+copy-on-write buckets created from one base-bucket snapshot. Checkpoints
+are labeled snapshots that can be restored into a fresh fork.
+
+For event-driven coordination, use :mod:`tigris_boto3_ext.object_notifications`.
 """
 
-import time
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -26,12 +29,8 @@ from .helpers import (
     create_fork,
     create_snapshot,
     create_snapshot_bucket,
+    delete_bucket,
     get_snapshot_version,
-    list_snapshots,
-)
-from .object_notifications import (
-    clear_object_notifications,
-    set_object_notifications,
 )
 
 
@@ -39,10 +38,8 @@ from .object_notifications import (
 class Credentials:
     """A scoped Tigris access key for a workspace or fork.
 
-    The ``user_name`` and ``policy_arn`` fields are bookkeeping needed by
-    the teardown helpers to detach + delete the underlying IAM policy.
-    Compare/repr exclude them so equality and printing focus on the
-    user-facing key material.
+    ``user_name`` and ``policy_arn`` are bookkeeping for teardown — kept out
+    of equality and repr so the user-facing key material is what shows up.
     """
 
     access_key_id: str
@@ -53,7 +50,7 @@ class Credentials:
 
 @dataclass
 class Workspace:
-    """A single-agent workspace bucket."""
+    """A single-agent workspace."""
 
     bucket: str
     credentials: Optional[Credentials] = None
@@ -80,9 +77,9 @@ class ForkSet:
 class Checkpoint:
     """A labeled snapshot of a bucket.
 
-    ``created_at`` is sourced client-side by :func:`checkpoint` (``datetime.now``)
-    but server-side by :func:`list_checkpoints`. To keep equality stable across
-    those two paths it's excluded from comparison.
+    ``created_at`` is sourced client-side by :func:`checkpoint`
+    (``datetime.now``), so it's excluded from equality so logically equal
+    checkpoints from different sources still match.
     """
 
     snapshot_id: str
@@ -92,24 +89,24 @@ class Checkpoint:
 
 def create_workspace(
     s3_client: S3Client,
-    name: str,
+    bucket: str,
     *,
     ttl_days: Optional[int] = None,
-    enable_snapshots: bool = False,
+    enable_snapshots: bool = True,
     credentials_role: Optional[Role] = None,
 ) -> Workspace:
-    """Create a workspace bucket for an agent.
+    """Create a workspace for an agent.
 
     Args:
         s3_client: boto3 S3 client.
-        name: Bucket name.
+        bucket: Workspace bucket name.
         ttl_days: If set, configure a lifecycle rule that expires objects
             after this many days.
-        enable_snapshots: If True, enable snapshot support on the bucket so
+        enable_snapshots: If True (the default), enable snapshot support so
             checkpoints can be taken later.
-        credentials_role: If set (``"Editor"`` or ``"ReadOnly"``), provision a
-            scoped Tigris access key for the workspace bucket and return it
-            on the workspace's ``credentials`` field.
+        credentials_role: If set (``"Editor"`` or ``"ReadOnly"``), provision
+            a bucket-scoped Tigris access key and attach it to
+            ``Workspace.credentials``.
 
     Returns:
         The created Workspace.
@@ -118,10 +115,8 @@ def create_workspace(
         ws = create_workspace(
             s3, "agent-abc",
             ttl_days=1,
-            enable_snapshots=True,
             credentials_role="Editor",
         )
-        # ws.credentials.access_key_id / .secret_access_key
         teardown_workspace(s3, ws)
     """
     if ttl_days is not None and ttl_days <= 0:
@@ -130,13 +125,13 @@ def create_workspace(
     _validate_role(credentials_role)
 
     if enable_snapshots:
-        create_snapshot_bucket(s3_client, name)
+        create_snapshot_bucket(s3_client, bucket)
     else:
-        s3_client.create_bucket(Bucket=name)
+        s3_client.create_bucket(Bucket=bucket)
 
     if ttl_days is not None:
         s3_client.put_bucket_lifecycle_configuration(
-            Bucket=name,
+            Bucket=bucket,
             LifecycleConfiguration={
                 "Rules": [
                     {
@@ -149,8 +144,16 @@ def create_workspace(
             },
         )
 
-    credentials = _provision_credentials(s3_client, name, credentials_role)
-    return Workspace(bucket=name, credentials=credentials)
+    try:
+        credentials = _provision_credentials(s3_client, bucket, credentials_role)
+    except Exception:
+        # Atomic semantics: if credentials were requested and provisioning
+        # fails, roll back the bucket so the caller isn't left without a
+        # handle to clean it up.
+        with suppress(Exception):
+            delete_bucket(s3_client, bucket, force=True)
+        raise
+    return Workspace(bucket=bucket, credentials=credentials)
 
 
 def teardown_workspace(
@@ -159,19 +162,20 @@ def teardown_workspace(
     *,
     force: bool = True,
 ) -> None:
-    """Delete a workspace bucket and revoke its scoped credentials, if any.
+    """Delete a workspace and revoke its scoped credentials, if any.
 
-    Args:
-        s3_client: boto3 S3 client.
-        workspace: Workspace returned by create_workspace.
-        force: If True (default), empty the bucket before deletion.
+    With ``force=True`` (default) the bucket is force-deleted via the
+    Tigris extension even if non-empty.
     """
     if workspace.credentials is not None:
         with suppress(Exception):
-            _revoke(s3_client, workspace.credentials)
-    if force:
-        _empty_bucket(s3_client, workspace.bucket)
-    s3_client.delete_bucket(Bucket=workspace.bucket)
+            delete_scoped_access_key(
+                s3_client,
+                access_key_id=workspace.credentials.access_key_id,
+                user_name=workspace.credentials.user_name,
+                policy_arn=workspace.credentials.policy_arn,
+            )
+    delete_bucket(s3_client, workspace.bucket, force=force)
 
 
 def create_forks(
@@ -182,7 +186,7 @@ def create_forks(
     prefix: Optional[str] = None,
     credentials_role: Optional[Role] = None,
 ) -> ForkSet:
-    """Snapshot a bucket then create `count` independent copy-on-write forks.
+    """Snapshot a bucket then create ``count`` independent copy-on-write forks.
 
     Each fork is its own bucket; agents can read and write without affecting
     the base bucket or each other. Fork creation is instant regardless of
@@ -196,18 +200,17 @@ def create_forks(
         base_bucket: Bucket to fork from.
         count: Number of forks to create. Must be >= 1.
         prefix: Optional prefix for fork bucket names. Defaults to
-            ``f"{base_bucket}-fork-{timestamp}"``.
+            ``f"{base_bucket}-fork-{snapshot_id}"``.
         credentials_role: If set (``"Editor"`` or ``"ReadOnly"``), provision a
-            scoped Tigris access key per fork and attach it to the
-            corresponding ``Fork.credentials``.
+            bucket-scoped Tigris access key per fork.
 
     Returns:
         ForkSet with the base bucket, snapshot id, and a list of forks.
 
     Raises:
-        ValueError: If ``count`` < 1.
-        RuntimeError: If the snapshot version could not be read from the
-            CreateSnapshot response, or if no forks could be created.
+        ValueError: If ``count`` < 1 or ``credentials_role`` is unrecognized.
+        RuntimeError: If the snapshot version could not be read or no forks
+            could be created.
     """
     if count < 1:
         msg = f"count must be >= 1, got {count}"
@@ -220,7 +223,7 @@ def create_forks(
         msg = f"Could not read snapshot version for base bucket {base_bucket!r}"
         raise RuntimeError(msg)
 
-    fork_prefix = prefix or f"{base_bucket}-fork-{int(time.time())}"
+    fork_prefix = prefix or f"{base_bucket}-fork-{snapshot_id}"
     forks: list[Fork] = []
 
     for i in range(count):
@@ -251,17 +254,20 @@ def teardown_forks(
     """Delete every fork in a ForkSet, revoking each fork's credentials.
 
     Best-effort: per-fork errors are swallowed so a single failure doesn't
-    strand the rest. Use ``force=False`` to skip emptying buckets before
-    deletion.
+    strand the rest. With ``force=True`` (default) each bucket is
+    force-deleted via the Tigris extension even if non-empty.
     """
     for fork in fork_set.forks:
         if fork.credentials is not None:
             with suppress(Exception):
-                _revoke(s3_client, fork.credentials)
-        if force:
-            _empty_bucket(s3_client, fork.bucket)
+                delete_scoped_access_key(
+                    s3_client,
+                    access_key_id=fork.credentials.access_key_id,
+                    user_name=fork.credentials.user_name,
+                    policy_arn=fork.credentials.policy_arn,
+                )
         with suppress(Exception):
-            s3_client.delete_bucket(Bucket=fork.bucket)
+            delete_bucket(s3_client, fork.bucket, force=force)
 
 
 def checkpoint(
@@ -311,82 +317,15 @@ def restore(
         bucket: Bucket the checkpoint was taken on.
         snapshot_id: Snapshot id from :func:`checkpoint`.
         fork_name: Optional name for the new fork bucket. Defaults to
-            ``f"{bucket}-restore-{timestamp}"``.
+            ``f"{bucket}-restore-{snapshot_id}"`` so the resulting bucket
+            name reflects which point-in-time it represents.
 
     Returns:
         Name of the new fork bucket.
     """
-    new_name = fork_name or f"{bucket}-restore-{int(time.time())}"
+    new_name = fork_name or f"{bucket}-restore-{snapshot_id}"
     create_fork(s3_client, new_name, bucket, snapshot_version=snapshot_id)
     return new_name
-
-
-def list_checkpoints(s3_client: S3Client, bucket: str) -> list[Checkpoint]:
-    """List all checkpoints (snapshots) for a bucket.
-
-    Each entry's snapshot id is parsed from the Tigris snapshot listing,
-    where ``Name`` has the form ``"<version>"`` or ``"<version>; name=<label>"``.
-    """
-    response = list_snapshots(s3_client, bucket)
-    checkpoints: list[Checkpoint] = []
-    for entry in response.get("Buckets", []) or []:
-        raw_name = entry.get("Name")
-        if not raw_name:
-            continue
-        version, _, label = raw_name.partition("; name=")
-        checkpoints.append(
-            Checkpoint(
-                snapshot_id=version,
-                name=label or None,
-                created_at=entry.get("CreationDate"),
-            )
-        )
-    return checkpoints
-
-
-def setup_coordination(
-    s3_client: S3Client,
-    bucket: str,
-    *,
-    webhook_url: str,
-    event_filter: Optional[str] = None,
-    auth_token: Optional[str] = None,
-    auth_username: Optional[str] = None,
-    auth_password: Optional[str] = None,
-) -> None:
-    """Configure a webhook that fires on object events in a bucket.
-
-    Thin wrapper around :func:`tigris_boto3_ext.set_object_notifications` —
-    surfaced here for the agent-kit workflow vocabulary.
-    """
-    set_object_notifications(
-        s3_client,
-        bucket,
-        webhook_url=webhook_url,
-        event_filter=event_filter,
-        auth_token=auth_token,
-        auth_username=auth_username,
-        auth_password=auth_password,
-    )
-
-
-def teardown_coordination(s3_client: S3Client, bucket: str) -> None:
-    """Remove webhook notifications from a bucket."""
-    clear_object_notifications(s3_client, bucket)
-
-
-def _try_create_fork(
-    s3_client: S3Client,
-    fork_name: str,
-    base_bucket: str,
-    snapshot_id: str,
-) -> bool:
-    """Best-effort fork creation. Returns True on success, False on failure."""
-    try:
-        create_fork(s3_client, fork_name, base_bucket, snapshot_version=snapshot_id)
-    except Exception:
-        return False
-    return True
 
 
 def _validate_role(role: Optional[Role]) -> None:
@@ -433,50 +372,15 @@ def _try_provision_credentials(
         return None
 
 
-def _revoke(s3_client: S3Client, credentials: Credentials) -> None:
-    """Best-effort revocation of a scoped access key."""
-    delete_scoped_access_key(
-        s3_client,
-        access_key_id=credentials.access_key_id,
-        user_name=credentials.user_name,
-        policy_arn=credentials.policy_arn,
-    )
-
-
-def _empty_bucket(s3_client: S3Client, bucket: str) -> None:
-    """Delete every object (including versions and delete markers) in a bucket."""
-    if _empty_versioned(s3_client, bucket):
-        return
-    _empty_unversioned(s3_client, bucket)
-
-
-def _empty_versioned(s3_client: S3Client, bucket: str) -> bool:
-    """Empty a versioned bucket. Returns True on success, False on failure."""
+def _try_create_fork(
+    s3_client: S3Client,
+    fork_name: str,
+    base_bucket: str,
+    snapshot_id: str,
+) -> bool:
+    """Best-effort fork creation. Returns True on success, False on failure."""
     try:
-        paginator = s3_client.get_paginator("list_object_versions")
-        for page in paginator.paginate(Bucket=bucket):
-            objects: list[Any] = []
-            for v in page.get("Versions", []) or []:
-                objects.append({"Key": v["Key"], "VersionId": v["VersionId"]})
-            for m in page.get("DeleteMarkers", []) or []:
-                objects.append({"Key": m["Key"], "VersionId": m["VersionId"]})
-            if objects:
-                s3_client.delete_objects(Bucket=bucket, Delete={"Objects": objects})
+        create_fork(s3_client, fork_name, base_bucket, snapshot_version=snapshot_id)
     except Exception:
         return False
     return True
-
-
-def _empty_unversioned(s3_client: S3Client, bucket: str) -> None:
-    """Empty a non-versioned bucket via list_objects_v2 — best-effort.
-
-    Each ``delete_object`` is independently suppressed so a single failure
-    doesn't abandon the rest of the page; otherwise ``teardown_workspace``
-    would raise ``BucketNotEmpty`` on the subsequent ``delete_bucket``.
-    """
-    with suppress(Exception):
-        paginator = s3_client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=bucket):
-            for obj in page.get("Contents", []) or []:
-                with suppress(Exception):
-                    s3_client.delete_object(Bucket=bucket, Key=obj["Key"])

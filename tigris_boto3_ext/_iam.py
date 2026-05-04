@@ -4,14 +4,15 @@ Tigris IAM is AWS-IAM-compatible, so we use the standard boto3 IAM client
 pointed at ``https://iam.storageapi.dev`` (override with the
 ``TIGRIS_IAM_ENDPOINT`` env var). The bucket-scoped key flow is:
 
-    1. ``create_access_key()``  — gets a fresh access key under Tigris's
-       implicit ``"auto"`` user. The response carries the user name we
-       need for subsequent calls.
-    2. ``create_policy(PolicyName, PolicyDocument)`` — a bucket-scoped
-       policy that grants the requested role (Editor → s3:*, ReadOnly →
-       GetObject/ListBucket).
-    3. ``attach_user_policy(UserName, PolicyArn)`` — wires the policy to
-       the access-key user.
+    1. ``create_access_key()`` — provision a fresh Tigris access key.
+    2. ``create_policy(PolicyName, PolicyDocument)`` — bucket-scoped
+       policy granting the requested role (Editor → ``s3:*``;
+       ReadOnly → GetObject + ListBucket + GetBucketLocation).
+    3. ``attach_user_policy(UserName, PolicyArn)`` — wire the policy to
+       the access key. Tigris treats the access key id itself as the
+       ``UserName`` handle here, *not* the ``UserName`` field returned
+       by ``create_access_key`` (which is informational, typically
+       ``"auto"``).
 
 Teardown reverses the sequence (detach → delete policy → delete access key).
 """

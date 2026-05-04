@@ -1,4 +1,4 @@
-"""Unit tests for agent_kit helpers (workspaces, forks, checkpoints, coordination)."""
+"""Unit tests for agent_kit helpers (workspaces, forks, checkpoints)."""
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -14,10 +14,7 @@ from tigris_boto3_ext import (
     checkpoint,
     create_forks,
     create_workspace,
-    list_checkpoints,
     restore,
-    setup_coordination,
-    teardown_coordination,
     teardown_forks,
     teardown_workspace,
 )
@@ -32,24 +29,25 @@ def s3_client():
 
 
 class TestCreateWorkspace:
-    def test_basic_creates_plain_bucket(self, s3_client):
+    def test_default_enables_snapshots(self, s3_client):
+        """Snapshot support is on by default — checkpoints are the common path."""
         with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap:
             ws = create_workspace(s3_client, "ws-1")
         assert ws == Workspace(bucket="ws-1")
-        mock_snap.assert_not_called()
-        s3_client.create_bucket.assert_called_once_with(Bucket="ws-1")
-        s3_client.put_bucket_lifecycle_configuration.assert_not_called()
-
-    def test_enable_snapshots_uses_helper(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap:
-            ws = create_workspace(s3_client, "ws-2", enable_snapshots=True)
-        assert ws.bucket == "ws-2"
-        mock_snap.assert_called_once_with(s3_client, "ws-2")
+        mock_snap.assert_called_once_with(s3_client, "ws-1")
         s3_client.create_bucket.assert_not_called()
         s3_client.put_bucket_lifecycle_configuration.assert_not_called()
 
+    def test_disable_snapshots_uses_plain_create_bucket(self, s3_client):
+        with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap:
+            ws = create_workspace(s3_client, "ws-2", enable_snapshots=False)
+        assert ws.bucket == "ws-2"
+        mock_snap.assert_not_called()
+        s3_client.create_bucket.assert_called_once_with(Bucket="ws-2")
+
     def test_ttl_days_sets_lifecycle_rule(self, s3_client):
-        create_workspace(s3_client, "ws-3", ttl_days=7)
+        with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket"):
+            create_workspace(s3_client, "ws-3", ttl_days=7)
 
         s3_client.put_bucket_lifecycle_configuration.assert_called_once()
         kwargs = s3_client.put_bucket_lifecycle_configuration.call_args.kwargs
@@ -59,12 +57,6 @@ class TestCreateWorkspace:
         assert rules[0]["Status"] == "Enabled"
         assert rules[0]["Expiration"] == {"Days": 7}
         assert rules[0]["Filter"] == {"Prefix": ""}
-
-    def test_ttl_combined_with_snapshots(self, s3_client):
-        with patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket") as mock_snap:
-            create_workspace(s3_client, "ws-4", ttl_days=1, enable_snapshots=True)
-        mock_snap.assert_called_once_with(s3_client, "ws-4")
-        s3_client.put_bucket_lifecycle_configuration.assert_called_once()
 
     def test_zero_ttl_raises(self, s3_client):
         with pytest.raises(ValueError, match="ttl_days must be positive"):
@@ -79,15 +71,15 @@ class TestCreateWorkspace:
 
 
 class TestTeardownWorkspace:
-    def test_force_empties_then_deletes(self, s3_client):
-        s3_client.get_paginator.return_value.paginate.return_value = iter([])
-        teardown_workspace(s3_client, Workspace(bucket="ws-x"))
-        s3_client.delete_bucket.assert_called_once_with(Bucket="ws-x")
+    def test_force_delete_uses_helper(self, s3_client):
+        with patch("tigris_boto3_ext.agent_kit.delete_bucket") as mock_delete:
+            teardown_workspace(s3_client, Workspace(bucket="ws-x"))
+        mock_delete.assert_called_once_with(s3_client, "ws-x", force=True)
 
-    def test_no_force_skips_empty(self, s3_client):
-        teardown_workspace(s3_client, Workspace(bucket="ws-x"), force=False)
-        s3_client.get_paginator.assert_not_called()
-        s3_client.delete_bucket.assert_called_once_with(Bucket="ws-x")
+    def test_no_force_passes_through(self, s3_client):
+        with patch("tigris_boto3_ext.agent_kit.delete_bucket") as mock_delete:
+            teardown_workspace(s3_client, Workspace(bucket="ws-x"), force=False)
+        mock_delete.assert_called_once_with(s3_client, "ws-x", force=False)
 
 
 # -- create_forks --
@@ -116,7 +108,8 @@ class TestCreateForks:
             assert call.args[2] == "base"
             assert call.kwargs == {"snapshot_version": "snap-abc"}
 
-    def test_default_prefix_includes_timestamp(self, s3_client):
+    def test_default_prefix_uses_snapshot_id(self, s3_client):
+        """Default prefix includes the snapshot id so fork names reflect lineage."""
         with (
             patch("tigris_boto3_ext.agent_kit.create_snapshot") as mock_snap,
             patch(
@@ -128,8 +121,7 @@ class TestCreateForks:
             mock_snap.return_value = {}
             result = create_forks(s3_client, "base", 1)
 
-        assert result.forks[0].bucket.startswith("base-fork-")
-        assert result.forks[0].bucket.endswith("-0")
+        assert result.forks[0].bucket == "base-fork-snap-1-0"
 
     def test_count_zero_raises(self, s3_client):
         with pytest.raises(ValueError, match="count must be >= 1"):
@@ -257,12 +249,13 @@ class TestCheckpoint:
 
 
 class TestRestore:
-    def test_default_fork_name(self, s3_client):
+    def test_default_fork_name_uses_snapshot_id(self, s3_client):
+        """Default fork name embeds the snapshot id, not a timestamp."""
         with patch("tigris_boto3_ext.agent_kit.create_fork") as mock_fork:
             new_bucket = restore(s3_client, "training", "snap-1")
-        assert new_bucket.startswith("training-restore-")
+        assert new_bucket == "training-restore-snap-1"
         mock_fork.assert_called_once()
-        assert mock_fork.call_args.args[1] == new_bucket
+        assert mock_fork.call_args.args[1] == "training-restore-snap-1"
         assert mock_fork.call_args.args[2] == "training"
         assert mock_fork.call_args.kwargs == {"snapshot_version": "snap-1"}
 
@@ -275,54 +268,9 @@ class TestRestore:
         assert mock_fork.call_args.args[1] == "retry-1"
 
 
-class TestListCheckpoints:
-    def test_parses_unnamed_versions(self, s3_client):
-        created = datetime(2025, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
-        with patch(
-            "tigris_boto3_ext.agent_kit.list_snapshots",
-            return_value={
-                "Buckets": [
-                    {"Name": "snap-aaa", "CreationDate": created},
-                    {"Name": "snap-bbb", "CreationDate": created},
-                ]
-            },
-        ):
-            ckpts = list_checkpoints(s3_client, "b")
-        assert ckpts == [
-            Checkpoint(snapshot_id="snap-aaa", name=None, created_at=created),
-            Checkpoint(snapshot_id="snap-bbb", name=None, created_at=created),
-        ]
-
-    def test_parses_named_snapshot(self, s3_client):
-        with patch(
-            "tigris_boto3_ext.agent_kit.list_snapshots",
-            return_value={
-                "Buckets": [
-                    {"Name": "snap-xyz; name=epoch-10", "CreationDate": None},
-                ]
-            },
-        ):
-            ckpts = list_checkpoints(s3_client, "b")
-        assert ckpts[0].snapshot_id == "snap-xyz"
-        assert ckpts[0].name == "epoch-10"
-
-    def test_empty_listing(self, s3_client):
-        with patch(
-            "tigris_boto3_ext.agent_kit.list_snapshots", return_value={"Buckets": []}
-        ):
-            assert list_checkpoints(s3_client, "b") == []
-
-    def test_skips_entries_without_name(self, s3_client):
-        with patch(
-            "tigris_boto3_ext.agent_kit.list_snapshots",
-            return_value={"Buckets": [{"Name": "", "CreationDate": None}]},
-        ):
-            assert list_checkpoints(s3_client, "b") == []
-
+class TestCheckpointEquality:
     def test_equality_ignores_created_at(self):
-        """A checkpoint() result must equal the same logical entry from list."""
-        from datetime import datetime, timezone
-
+        """A checkpoint() result must equal the same logical entry from a listing."""
         client_side = Checkpoint(
             snapshot_id="snap-1",
             name="ep-1",
@@ -334,43 +282,6 @@ class TestListCheckpoints:
             created_at=datetime(2026, 4, 28, tzinfo=timezone.utc),
         )
         assert client_side == server_side
-
-
-# -- coordination --
-
-
-class TestSetupCoordination:
-    """Thin wrapper that delegates to set_object_notifications."""
-
-    def test_passes_args_through(self, s3_client):
-        with patch(
-            "tigris_boto3_ext.agent_kit.set_object_notifications"
-        ) as mock_set:
-            setup_coordination(
-                s3_client,
-                "b",
-                webhook_url="https://hook",
-                event_filter="f",
-                auth_token="t",  # noqa: S106
-            )
-        mock_set.assert_called_once_with(
-            s3_client,
-            "b",
-            webhook_url="https://hook",
-            event_filter="f",
-            auth_token="t",  # noqa: S106
-            auth_username=None,
-            auth_password=None,
-        )
-
-
-class TestTeardownCoordination:
-    def test_clears_notifications(self, s3_client):
-        with patch(
-            "tigris_boto3_ext.agent_kit.clear_object_notifications"
-        ) as mock_clear:
-            teardown_coordination(s3_client, "b")
-        mock_clear.assert_called_once_with(s3_client, "b")
 
 
 # -- Credentials --
@@ -423,6 +334,22 @@ class TestCreateWorkspaceCredentials:
         with pytest.raises(ValueError, match="must be 'Editor' or 'ReadOnly'"):
             create_workspace(s3_client, "ws-bad", credentials_role="Admin")
 
+    def test_credential_failure_rolls_back_bucket(self, s3_client):
+        """If credential provisioning fails, the bucket is force-deleted."""
+        with (
+            patch("tigris_boto3_ext.agent_kit.create_snapshot_bucket"),
+            patch(
+                "tigris_boto3_ext.agent_kit.create_scoped_access_key",
+                side_effect=RuntimeError("iam down"),
+            ),
+            patch("tigris_boto3_ext.agent_kit.delete_bucket") as mock_delete,
+        ):
+            with pytest.raises(RuntimeError, match="iam down"):
+                create_workspace(
+                    s3_client, "ws-rb", credentials_role="Editor"
+                )
+        mock_delete.assert_called_once_with(s3_client, "ws-rb", force=True)
+
     def test_invalid_role_does_not_create_bucket(self, s3_client):
         """Bad role must fail before any bucket-creating S3 call (no leak)."""
         with patch(
@@ -465,7 +392,6 @@ class TestTeardownWorkspaceCredentials:
         s3_client.delete_bucket.assert_called_once_with(Bucket="ws-1")
 
     def test_revoke_failure_still_deletes_bucket(self, s3_client):
-        s3_client.get_paginator.return_value.paginate.return_value = iter([])
         ws = Workspace(
             bucket="ws-1",
             credentials=Credentials(
@@ -475,12 +401,15 @@ class TestTeardownWorkspaceCredentials:
                 policy_arn="arn:policy/p",
             ),
         )
-        with patch(
-            "tigris_boto3_ext.agent_kit.delete_scoped_access_key",
-            side_effect=RuntimeError("iam down"),
+        with (
+            patch(
+                "tigris_boto3_ext.agent_kit.delete_scoped_access_key",
+                side_effect=RuntimeError("iam down"),
+            ),
+            patch("tigris_boto3_ext.agent_kit.delete_bucket") as mock_delete_bucket,
         ):
             teardown_workspace(s3_client, ws)
-        s3_client.delete_bucket.assert_called_once_with(Bucket="ws-1")
+        mock_delete_bucket.assert_called_once_with(s3_client, "ws-1", force=True)
 
 
 class TestCreateForksCredentials:
@@ -551,81 +480,8 @@ class TestCreateForksCredentials:
         assert result.forks[2].credentials is not None
 
 
-class TestEmptyBucket:
-    """Cover _empty_bucket internals via teardown_workspace."""
-
-    def test_empty_bucket_deletes_versions_and_markers(self, s3_client):
-        # The versioned paginator returns one page with versions + delete markers.
-        s3_client.get_paginator.return_value.paginate.return_value = iter(
-            [
-                {
-                    "Versions": [
-                        {"Key": "k1", "VersionId": "v1"},
-                        {"Key": "k2", "VersionId": "v2"},
-                    ],
-                    "DeleteMarkers": [{"Key": "k3", "VersionId": "vm1"}],
-                }
-            ]
-        )
-        teardown_workspace(s3_client, Workspace(bucket="b"))
-        s3_client.get_paginator.assert_called_with("list_object_versions")
-        s3_client.delete_objects.assert_called_once_with(
-            Bucket="b",
-            Delete={
-                "Objects": [
-                    {"Key": "k1", "VersionId": "v1"},
-                    {"Key": "k2", "VersionId": "v2"},
-                    {"Key": "k3", "VersionId": "vm1"},
-                ]
-            },
-        )
-        s3_client.delete_bucket.assert_called_once_with(Bucket="b")
-
-    def test_unversioned_continues_after_per_object_failure(self, s3_client):
-        """A single delete_object failure must not strand the rest of the page."""
-        v_paginator = MagicMock()
-        v_paginator.paginate.side_effect = RuntimeError("not versioned")
-        unv_paginator = MagicMock()
-        unv_paginator.paginate.return_value = iter(
-            [{"Contents": [{"Key": "a"}, {"Key": "b"}, {"Key": "c"}]}]
-        )
-
-        def get_paginator(op):
-            return v_paginator if op == "list_object_versions" else unv_paginator
-
-        s3_client.get_paginator.side_effect = get_paginator
-        # Object "b" can't be deleted; "a" and "c" still must.
-        s3_client.delete_object.side_effect = [None, RuntimeError("perm"), None]
-
-        teardown_workspace(s3_client, Workspace(bucket="b"))
-
-        keys = [c.kwargs["Key"] for c in s3_client.delete_object.call_args_list]
-        assert keys == ["a", "b", "c"]
-
-    def test_falls_back_to_unversioned_on_failure(self, s3_client):
-        # Versioned listing raises (e.g. unversioned bucket); fallback runs.
-        v_paginator = MagicMock()
-        v_paginator.paginate.side_effect = RuntimeError("not versioned")
-        unv_paginator = MagicMock()
-        unv_paginator.paginate.return_value = iter(
-            [{"Contents": [{"Key": "a"}, {"Key": "b"}]}]
-        )
-
-        def get_paginator(op):
-            if op == "list_object_versions":
-                return v_paginator
-            return unv_paginator
-
-        s3_client.get_paginator.side_effect = get_paginator
-
-        teardown_workspace(s3_client, Workspace(bucket="b"))
-        deleted = [c.kwargs["Key"] for c in s3_client.delete_object.call_args_list]
-        assert deleted == ["a", "b"]
-
-
 class TestTeardownForksCredentials:
     def test_revokes_each_credential(self, s3_client):
-        s3_client.get_paginator.return_value.paginate.return_value = iter([])
         fs = ForkSet(
             base_bucket="base",
             snapshot_id="v1",
@@ -650,11 +506,21 @@ class TestTeardownForksCredentials:
                 ),
             ],
         )
-        with patch(
-            "tigris_boto3_ext.agent_kit.delete_scoped_access_key"
-        ) as mock_delete:
+        with (
+            patch(
+                "tigris_boto3_ext.agent_kit.delete_scoped_access_key"
+            ) as mock_delete,
+            patch("tigris_boto3_ext.agent_kit.delete_bucket") as mock_delete_bucket,
+        ):
             teardown_forks(s3_client, fs)
         deleted_keys = [
             c.kwargs["access_key_id"] for c in mock_delete.call_args_list
         ]
         assert deleted_keys == ["AKIA0", "AKIA1"]
+        # Each fork is force-deleted via the Tigris extension.
+        assert [c.args[1] for c in mock_delete_bucket.call_args_list] == [
+            "f0",
+            "f1",
+        ]
+        for call in mock_delete_bucket.call_args_list:
+            assert call.kwargs == {"force": True}

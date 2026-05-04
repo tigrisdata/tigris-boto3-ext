@@ -11,86 +11,86 @@ from tigris_boto3_ext import (
     ForkSet,
     Workspace,
     checkpoint,
+    clear_object_notifications,
     create_forks,
     create_workspace,
-    list_checkpoints,
     restore,
-    setup_coordination,
-    teardown_coordination,
+    set_object_notifications,
     teardown_forks,
     teardown_workspace,
 )
 
 
 class TestWorkspace:
-    def test_create_basic_workspace(
+    def test_create_workspace_default_enables_snapshots(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        name = generate_bucket_name(test_bucket_prefix, "ws-basic-")
-        cleanup_buckets.append(name)
+        bucket = generate_bucket_name(test_bucket_prefix, "ws-default-")
+        cleanup_buckets.append(bucket)
 
-        ws = create_workspace(s3_client, name)
+        ws = create_workspace(s3_client, bucket)
 
         assert isinstance(ws, Workspace)
-        assert ws.bucket == name
-        assert bucket_exists(s3_client, name)
-
-    def test_create_workspace_with_snapshots(
-        self, s3_client, test_bucket_prefix, cleanup_buckets
-    ):
-        name = generate_bucket_name(test_bucket_prefix, "ws-snap-")
-        cleanup_buckets.append(name)
-
-        ws = create_workspace(s3_client, name, enable_snapshots=True)
-
-        assert ws.bucket == name
-        # If snapshots are enabled the head_bucket exposes the flag.
-        head = s3_client.head_bucket(Bucket=name)
+        assert ws.bucket == bucket
+        assert bucket_exists(s3_client, bucket)
+        # Snapshots are on by default — the head_bucket header reflects it.
+        head = s3_client.head_bucket(Bucket=bucket)
         headers = head.get("ResponseMetadata", {}).get("HTTPHeaders", {})
         assert (
             str(headers.get("x-tigris-enable-snapshot", "")).lower() == "true"
         )
 
+    def test_create_workspace_disable_snapshots(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        bucket = generate_bucket_name(test_bucket_prefix, "ws-no-snap-")
+        cleanup_buckets.append(bucket)
+
+        ws = create_workspace(s3_client, bucket, enable_snapshots=False)
+        assert ws.bucket == bucket
+        assert bucket_exists(s3_client, bucket)
+
     def test_create_workspace_with_ttl(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        name = generate_bucket_name(test_bucket_prefix, "ws-ttl-")
-        cleanup_buckets.append(name)
+        bucket = generate_bucket_name(test_bucket_prefix, "ws-ttl-")
+        cleanup_buckets.append(bucket)
 
-        # Just assert the call succeeds — Tigris stores the lifecycle rule
-        # internally; we don't have a read endpoint here to verify it.
-        ws = create_workspace(s3_client, name, ttl_days=1)
-        assert ws.bucket == name
-        assert bucket_exists(s3_client, name)
+        ws = create_workspace(s3_client, bucket, ttl_days=1)
+        assert ws.bucket == bucket
+        # Verify the lifecycle rule was actually persisted by Tigris.
+        config = s3_client.get_bucket_lifecycle_configuration(Bucket=bucket)
+        rules = config.get("Rules", [])
+        assert any(
+            rule.get("Expiration", {}).get("Days") == 1 for rule in rules
+        )
 
-    def test_teardown_workspace_deletes_bucket(
+    def test_teardown_workspace_force_deletes_non_empty_bucket(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        name = generate_bucket_name(test_bucket_prefix, "ws-down-")
-        cleanup_buckets.append(name)
+        bucket = generate_bucket_name(test_bucket_prefix, "ws-down-")
+        cleanup_buckets.append(bucket)
 
-        ws = create_workspace(s3_client, name)
-        s3_client.put_object(Bucket=name, Key="leftover.txt", Body=b"hi")
+        ws = create_workspace(s3_client, bucket)
+        s3_client.put_object(Bucket=bucket, Key="leftover.txt", Body=b"hi")
 
+        # force=True (the default) uses Tigris's force-delete extension.
         teardown_workspace(s3_client, ws)
-
-        assert not bucket_exists(s3_client, name)
+        assert not bucket_exists(s3_client, bucket)
 
     def test_workspace_with_credentials_round_trip(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        name = generate_bucket_name(test_bucket_prefix, "ws-cred-")
-        cleanup_buckets.append(name)
+        bucket = generate_bucket_name(test_bucket_prefix, "ws-cred-")
+        cleanup_buckets.append(bucket)
 
-        ws = create_workspace(
-            s3_client, name, credentials_role="Editor"
-        )
+        ws = create_workspace(s3_client, bucket, credentials_role="Editor")
         assert isinstance(ws.credentials, Credentials)
         assert ws.credentials.access_key_id
         assert ws.credentials.secret_access_key
 
         teardown_workspace(s3_client, ws)
-        assert not bucket_exists(s3_client, name)
+        assert not bucket_exists(s3_client, bucket)
 
 
 class TestForks:
@@ -100,8 +100,7 @@ class TestForks:
         base = generate_bucket_name(test_bucket_prefix, "forks-base-")
         cleanup_buckets.append(base)
 
-        # Base bucket must have snapshots enabled.
-        create_workspace(s3_client, base, enable_snapshots=True)
+        create_workspace(s3_client, base)
         s3_client.put_object(Bucket=base, Key="seed.txt", Body=b"seed-data")
 
         prefix = generate_bucket_name(test_bucket_prefix, "fork-")
@@ -117,16 +116,31 @@ class TestForks:
             assert isinstance(fork, Fork)
             assert fork.bucket == f"{prefix}-{i}"
             assert bucket_exists(s3_client, fork.bucket)
-            # The seed object copied over via the snapshot should be readable.
             obj = s3_client.get_object(Bucket=fork.bucket, Key="seed.txt")
             assert obj["Body"].read() == b"seed-data"
+
+    def test_default_fork_prefix_uses_snapshot_id(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        # Tigris snapshot ids are ~19 chars; use a short suffix so the
+        # default prefix + snapshot id + "-N" fits the 63-char bucket-name
+        # limit (the standard test prefix + uuid is already ~34 chars).
+        base = generate_bucket_name(test_bucket_prefix, "f-")
+        cleanup_buckets.append(base)
+        create_workspace(s3_client, base)
+
+        result = create_forks(s3_client, base, 1)
+        for fork in result.forks:
+            cleanup_buckets.append(fork.bucket)
+
+        assert result.forks[0].bucket == f"{base}-fork-{result.snapshot_id}-0"
 
     def test_forks_are_isolated(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         base = generate_bucket_name(test_bucket_prefix, "forks-iso-")
         cleanup_buckets.append(base)
-        create_workspace(s3_client, base, enable_snapshots=True)
+        create_workspace(s3_client, base)
         s3_client.put_object(Bucket=base, Key="shared.txt", Body=b"v1")
 
         prefix = generate_bucket_name(test_bucket_prefix, "fork-iso-")
@@ -134,7 +148,6 @@ class TestForks:
         for fork in result.forks:
             cleanup_buckets.append(fork.bucket)
 
-        # Write divergent content into each fork.
         s3_client.put_object(
             Bucket=result.forks[0].bucket, Key="shared.txt", Body=b"fork-0"
         )
@@ -142,28 +155,30 @@ class TestForks:
             Bucket=result.forks[1].bucket, Key="shared.txt", Body=b"fork-1"
         )
 
-        # Each fork sees its own write.
-        f0 = s3_client.get_object(
-            Bucket=result.forks[0].bucket, Key="shared.txt"
-        )["Body"].read()
-        f1 = s3_client.get_object(
-            Bucket=result.forks[1].bucket, Key="shared.txt"
-        )["Body"].read()
-        assert f0 == b"fork-0"
-        assert f1 == b"fork-1"
-
-        # Base is untouched.
-        base_obj = s3_client.get_object(Bucket=base, Key="shared.txt")[
-            "Body"
-        ].read()
-        assert base_obj == b"v1"
+        assert (
+            s3_client.get_object(
+                Bucket=result.forks[0].bucket, Key="shared.txt"
+            )["Body"].read()
+            == b"fork-0"
+        )
+        assert (
+            s3_client.get_object(
+                Bucket=result.forks[1].bucket, Key="shared.txt"
+            )["Body"].read()
+            == b"fork-1"
+        )
+        # Base bucket is untouched.
+        assert (
+            s3_client.get_object(Bucket=base, Key="shared.txt")["Body"].read()
+            == b"v1"
+        )
 
     def test_create_forks_with_credentials(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         base = generate_bucket_name(test_bucket_prefix, "forks-cred-")
         cleanup_buckets.append(base)
-        create_workspace(s3_client, base, enable_snapshots=True)
+        create_workspace(s3_client, base)
 
         prefix = generate_bucket_name(test_bucket_prefix, "fork-cred-")
         result = create_forks(
@@ -176,23 +191,21 @@ class TestForks:
             assert isinstance(fork.credentials, Credentials)
             assert fork.credentials.access_key_id
             assert fork.credentials.secret_access_key
-            # Each fork's credentials must be unique.
         ids = [f.credentials.access_key_id for f in result.forks]
         assert len(set(ids)) == len(ids)
 
         teardown_forks(s3_client, result)
 
-    def test_teardown_forks_deletes_all(
+    def test_teardown_forks_force_deletes_non_empty(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
         base = generate_bucket_name(test_bucket_prefix, "forks-down-")
         cleanup_buckets.append(base)
-        create_workspace(s3_client, base, enable_snapshots=True)
+        create_workspace(s3_client, base)
 
         prefix = generate_bucket_name(test_bucket_prefix, "fork-down-")
         result = create_forks(s3_client, base, 2, prefix=prefix)
 
-        # Put an object in each fork to exercise force-empty.
         for fork in result.forks:
             s3_client.put_object(Bucket=fork.bucket, Key="x", Body=b"x")
 
@@ -208,12 +221,13 @@ class TestCheckpoints:
     ):
         bucket = generate_bucket_name(test_bucket_prefix, "ck-")
         cleanup_buckets.append(bucket)
-        create_workspace(s3_client, bucket, enable_snapshots=True)
+        create_workspace(s3_client, bucket)
 
         ck = checkpoint(s3_client, bucket, name=f"epoch-{int(time.time())}")
         assert isinstance(ck, Checkpoint)
         assert ck.snapshot_id
-        assert ck.name and ck.name.startswith("epoch-")
+        assert ck.name is not None
+        assert ck.name.startswith("epoch-")
         assert ck.created_at is not None
 
     def test_restore_creates_new_fork(
@@ -221,7 +235,7 @@ class TestCheckpoints:
     ):
         bucket = generate_bucket_name(test_bucket_prefix, "ck-restore-")
         cleanup_buckets.append(bucket)
-        create_workspace(s3_client, bucket, enable_snapshots=True)
+        create_workspace(s3_client, bucket)
         s3_client.put_object(Bucket=bucket, Key="data.txt", Body=b"original")
 
         ck = checkpoint(s3_client, bucket)
@@ -237,46 +251,27 @@ class TestCheckpoints:
         )
         cleanup_buckets.append(restored)
 
-        # The restored fork holds the original value.
         body = s3_client.get_object(Bucket=restored, Key="data.txt")[
             "Body"
         ].read()
         assert body == b"original"
 
-    def test_list_checkpoints_returns_all(
+
+class TestObjectNotifications:
+    def test_set_and_clear(
         self, s3_client, test_bucket_prefix, cleanup_buckets
     ):
-        bucket = generate_bucket_name(test_bucket_prefix, "ck-list-")
-        cleanup_buckets.append(bucket)
-        create_workspace(s3_client, bucket, enable_snapshots=True)
-
-        ck1 = checkpoint(s3_client, bucket, name="alpha")
-        ck2 = checkpoint(s3_client, bucket, name="beta")
-
-        listed = list_checkpoints(s3_client, bucket)
-
-        assert len(listed) >= 2
-        ids = {c.snapshot_id for c in listed}
-        assert ck1.snapshot_id in ids
-        assert ck2.snapshot_id in ids
-
-
-class TestCoordination:
-    def test_setup_and_teardown(
-        self, s3_client, test_bucket_prefix, cleanup_buckets
-    ):
-        bucket = generate_bucket_name(test_bucket_prefix, "coord-")
+        bucket = generate_bucket_name(test_bucket_prefix, "notif-")
         cleanup_buckets.append(bucket)
         create_workspace(s3_client, bucket)
 
-        # Configure a webhook — the URL is never reached in this test, we
-        # only verify Tigris accepts the configuration.
-        setup_coordination(
+        # The webhook URL is never invoked here — we only verify Tigris
+        # accepts the configuration.
+        set_object_notifications(
             s3_client,
             bucket,
             webhook_url="https://example.com/webhook",
             event_filter='WHERE `key` REGEXP "^results/"',
-            auth_token="test-token",
+            auth_token="test-token",  # noqa: S106
         )
-
-        teardown_coordination(s3_client, bucket)
+        clear_object_notifications(s3_client, bucket)
