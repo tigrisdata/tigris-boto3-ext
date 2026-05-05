@@ -13,8 +13,8 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 - **Bundle API**: Fetch thousands of objects in a single request as a streaming tar archive — designed for ML training workloads
 - **Snapshot Support**: Create, list, and read from bucket snapshots
 - **Bucket Forking**: Create forked buckets from existing buckets or snapshots
-- **Agent Kit**: High-level workflow helpers for AI agents — workspaces, parallel forks, checkpoints, and event-driven coordination
-- **Multiple Usage Patterns**: Context managers, decorators, helper functions
+- **Object Rename**: Rename objects in place without rewriting their data
+- **Multiple Usage Patterns**: Context managers, decorators, helper functions, or wrapper client
 - **Zero Configuration**: Works with existing boto3 code
 - **Type Safe**: Full type hints for IDE support
 - **Pythonic API**: Uses familiar Python patterns
@@ -67,10 +67,27 @@ with TigrisFork(s3_client, 'source-bucket', snapshot_version='12345'):
     s3_client.create_bucket(Bucket='forked-from-snapshot')
 ```
 
+#### Rename Objects
+
+Tigris implements rename as a `copy_object` request plus the `X-Tigris-Rename: true`
+header — no data is rewritten, only the key changes. Keep the context tight so
+unrelated `copy_object` calls are not turned into renames.
+
+```python
+from tigris_boto3_ext import TigrisRename
+
+with TigrisRename(s3_client):
+    s3_client.copy_object(
+        Bucket='my-bucket',
+        CopySource='my-bucket/old-name.txt',
+        Key='new-name.txt',
+    )
+```
+
 ### 2. Decorators
 
 ```python
-from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from
+from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from, with_rename
 
 @snapshot_enabled
 def create_snapshot_enabled_bucket(s3_client, bucket_name):
@@ -90,11 +107,20 @@ def read_from_snapshot(s3_client, key):
 def create_my_fork(s3_client, new_bucket):
     return s3_client.create_bucket(Bucket=new_bucket)
 
+@with_rename
+def rename_file(s3_client, bucket, old_key, new_key):
+    return s3_client.copy_object(
+        Bucket=bucket,
+        CopySource=f'{bucket}/{old_key}',
+        Key=new_key,
+    )
+
 # Use the decorated functions
 create_snapshot_enabled_bucket(s3_client, 'my-bucket')
 snapshots = list_snapshots(s3_client)
 obj = read_from_snapshot(s3_client, 'file.txt')
 create_my_fork(s3_client, 'my-fork')
+rename_file(s3_client, 'my-bucket', 'old.txt', 'new.txt')
 ```
 
 ### 3. Helper Functions
@@ -111,6 +137,7 @@ from tigris_boto3_ext import (
     head_object_from_snapshot,
     has_snapshot_enabled,
     get_bucket_info,
+    rename_object,
 )
 
 # Create snapshot-enabled bucket
@@ -138,6 +165,9 @@ create_fork(s3_client, 'new-bucket', 'source-bucket', snapshot_version=version)
 obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
 objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='data/')
 metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
+
+# Rename an object in place (no data rewrite)
+rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
 ```
 
 ### 4. Agent-storage workflows
@@ -417,6 +447,7 @@ This library uses boto3's event system to inject Tigris-specific headers into S3
 - **`X-Tigris-Snapshot-Version: <version>`** - Reads from specific snapshot version
 - **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
 - **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
+- **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
 
 ### Response Headers (Returned by Tigris)
 
