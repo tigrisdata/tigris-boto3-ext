@@ -2,11 +2,7 @@
 
 Tigris exposes object-event webhooks via a bucket-settings extension that
 isn't part of the S3 API: a SigV4-signed ``PATCH /{bucket}`` with a JSON
-body. This module is the public surface for that feature; lower-level
-helpers in :mod:`tigris_boto3_ext.agent_kit` (``setup_coordination`` /
-``teardown_coordination``) are thin wrappers around it.
-
-When an object is created, deleted, or modified Tigris will POST a
+body. When an object is created, deleted, or modified Tigris POSTs a
 notification to the configured webhook URL.
 """
 
