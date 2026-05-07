@@ -99,7 +99,7 @@ def create_workspace(
 
     Args:
         s3_client: boto3 S3 client.
-        bucket: Workspace bucket name.
+        bucket: Name for the workspace.
         ttl_days: If set, configure a lifecycle rule that expires objects
             after this many days.
         enable_snapshots: If True (the default), enable snapshot support so
