@@ -13,7 +13,7 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 - **Bundle API**: Fetch thousands of objects in a single request as a streaming tar archive — designed for ML training workloads
 - **Snapshot Support**: Create, list, and read from bucket snapshots
 - **Bucket Forking**: Create forked buckets from existing buckets or snapshots
-- **Object Rename**: Rename objects in place without rewriting their data
+- **Object Rename**: Rename (move) objects in place without rewriting their data
 - **Multiple Usage Patterns**: Context managers, decorators, helper functions, or wrapper client
 - **Zero Configuration**: Works with existing boto3 code
 - **Type Safe**: Full type hints for IDE support
@@ -167,6 +167,7 @@ objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='da
 metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
 
 # Rename an object in place (no data rewrite)
+# This moves the object to a new path in your bucket like the `mv` command on Unix.
 rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
 ```
 
