@@ -171,6 +171,105 @@ metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345'
 rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
 ```
 
+### 4. Agent-storage workflows
+
+Higher-level helpers for AI-agent storage flows: workspaces (per-agent
+buckets), parallel forks, and checkpoints. Built on top of snapshots,
+forks, the standard S3 lifecycle API, and the AWS-IAM compatible Tigris IAM.
+
+#### Workspaces
+
+A workspace is a Tigris bucket dedicated to a single agent — created with
+snapshots enabled by default, with optional TTL for auto-cleanup and an
+optional bucket-scoped access key for least-privilege access.
+
+```python
+from tigris_boto3_ext import create_workspace, teardown_workspace
+
+ws = create_workspace(
+    s3_client,
+    'agent-abc',
+    ttl_days=1,                  # auto-expire objects after 1 day
+    credentials_role='Editor',   # provision a bucket-scoped access key
+)
+
+# ws.bucket — bucket name
+# ws.credentials.access_key_id / secret_access_key — scoped key (if requested)
+
+teardown_workspace(s3_client, ws)  # revokes credentials, force-deletes bucket
+```
+
+#### Forks (parallel agent runs)
+
+Snapshot a bucket, then fork it `count` times. Each fork is its own bucket,
+created instantly via copy-on-write — agents can read/write without affecting
+the base bucket or each other.
+
+```python
+from tigris_boto3_ext import create_forks, teardown_forks
+
+forks = create_forks(
+    s3_client,
+    'training-data',
+    count=3,
+    credentials_role='ReadOnly',  # one scoped key per fork (optional)
+)
+
+for fork in forks.forks:
+    print(fork.bucket)  # f"{base}-fork-{snapshot_id}-0", "-1", "-2"
+    # fork.credentials.access_key_id / secret_access_key (if requested)
+
+teardown_forks(s3_client, forks)
+```
+
+#### Checkpoints
+
+Capture a labeled snapshot you can later restore from. Restoring creates a new
+fork at that point in time; the original bucket is untouched.
+
+```python
+from tigris_boto3_ext import checkpoint, restore
+
+ck = checkpoint(s3_client, 'training-data', name='epoch-50')
+print(ck.snapshot_id)
+
+# Later — restore into a fresh fork named "training-data-restore-<snapshot_id>"
+restored_bucket = restore(s3_client, 'training-data', ck.snapshot_id)
+```
+
+To enumerate existing checkpoints on a bucket, use the lower-level
+`list_snapshots` and parse the `Name` field (`"<version>"` or
+`"<version>; name=<label>"`).
+
+### 5. Object-event webhooks
+
+Configure webhook notifications on object events to drive event-driven
+multi-agent pipelines without polling.
+
+```python
+from tigris_boto3_ext import set_object_notifications, clear_object_notifications
+
+set_object_notifications(
+    s3_client,
+    'pipeline-bucket',
+    webhook_url='https://my-service.example/webhook',
+    event_filter='WHERE `key` REGEXP "^results/"',
+    auth_token='my-webhook-secret',
+)
+
+clear_object_notifications(s3_client, 'pipeline-bucket')
+```
+
+> **Notes**: Workspace TTL uses the standard S3 `PutBucketLifecycleConfiguration`
+> API. Force-deletion uses the Tigris `Tigris-Force-Delete` header (also
+> exposed as `delete_bucket(s3, bucket, force=True)`). Scoped credentials use
+> the AWS-IAM-compatible Tigris IAM endpoint at `https://iam.storageapi.dev`
+> (override via the `TIGRIS_IAM_ENDPOINT` env var) — `create_workspace` /
+> `create_forks` issue a `CreateAccessKey` + bucket-scoped `CreatePolicy` +
+> `AttachUserPolicy` against the standard boto3 IAM client. Webhook
+> notifications are the only piece that uses a Tigris-specific
+> `PATCH /{bucket}` JSON endpoint.
+
 ## Complete Examples
 
 ### Example 1: Backup and Restore Workflow

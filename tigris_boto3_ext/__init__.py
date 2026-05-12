@@ -6,6 +6,19 @@ Tigris-specific features like snapshots and bucket forking while maintaining ful
 boto3 compatibility.
 """
 
+from .agent_kit import (
+    Checkpoint,
+    Credentials,
+    Fork,
+    ForkSet,
+    Workspace,
+    checkpoint,
+    create_forks,
+    create_workspace,
+    restore,
+    teardown_forks,
+    teardown_workspace,
+)
 from .bundle import (
     BUNDLE_COMPRESSION_GZIP,
     BUNDLE_COMPRESSION_NONE,
@@ -28,6 +41,7 @@ from .helpers import (
     create_fork,
     create_snapshot,
     create_snapshot_bucket,
+    delete_bucket,
     get_bucket_info,
     get_object_from_snapshot,
     get_snapshot_version,
@@ -36,6 +50,11 @@ from .helpers import (
     list_objects_from_snapshot,
     list_snapshots,
     rename_object,
+)
+from .object_notifications import (
+    ObjectNotificationsError,
+    clear_object_notifications,
+    set_object_notifications,
 )
 
 __version__ = "0.3.0"
@@ -67,10 +86,27 @@ __all__ = [
     "get_snapshot_version",
     "list_snapshots",
     "create_fork",
+    "delete_bucket",
     "get_object_from_snapshot",
     "list_objects_from_snapshot",
     "head_object_from_snapshot",
     "has_snapshot_enabled",
     "get_bucket_info",
     "rename_object",
+    # Agent Kit
+    "Workspace",
+    "Fork",
+    "ForkSet",
+    "Checkpoint",
+    "Credentials",
+    "create_workspace",
+    "teardown_workspace",
+    "create_forks",
+    "teardown_forks",
+    "checkpoint",
+    "restore",
+    # Object Notifications
+    "set_object_notifications",
+    "clear_object_notifications",
+    "ObjectNotificationsError",
 ]
