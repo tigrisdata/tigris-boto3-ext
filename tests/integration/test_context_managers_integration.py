@@ -2,8 +2,9 @@
 
 import pytest
 
-from .conftest import bucket_exists, generate_bucket_name
 from tigris_boto3_ext import TigrisFork, TigrisSnapshot, TigrisSnapshotEnabled
+
+from .conftest import bucket_exists, generate_bucket_name
 
 
 class TestSnapshotEnabledContext:
@@ -19,7 +20,8 @@ class TestSnapshotEnabledContext:
         with TigrisSnapshotEnabled(s3_client):
             result = s3_client.create_bucket(Bucket=bucket_name)
 
-        assert "Location" in result and result["Location"] == f'/{bucket_name}'
+        assert "Location" in result
+        assert result["Location"] == f"/{bucket_name}"
 
     def test_snapshot_enabled_reusable(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -52,10 +54,9 @@ class TestSnapshotEnabledContext:
         s3_client.create_bucket(Bucket=bucket_name)
 
         # Try to create again (should fail) but context should cleanup
-        with pytest.raises(Exception):
-            with TigrisSnapshotEnabled(s3_client):
-                # This should raise an error (bucket already exists)
-                s3_client.create_bucket(Bucket=bucket_name)
+        with pytest.raises(Exception), TigrisSnapshotEnabled(s3_client):
+            # This should raise an error (bucket already exists)
+            s3_client.create_bucket(Bucket=bucket_name)
 
         # Context should have cleaned up properly
 
@@ -71,7 +72,8 @@ class TestSnapshotContext:
         cleanup_buckets.append(bucket_name)
 
         # Create bucket
-        s3_client.create_bucket(Bucket=bucket_name)
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=bucket_name)
 
         # List in snapshot context
         with TigrisSnapshot(s3_client, bucket_name):
