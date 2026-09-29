@@ -115,3 +115,8 @@ def create_multi_operation_injector(
         List of configured HeaderInjector instances
     """
     return [create_header_injector(client, op, headers) for op in operations]
+
+
+def has_active_injector(client: S3Client, operation: str) -> bool:
+    """True while a header injector is registered for this client and operation."""
+    return (id(client), f"before-sign.s3.{operation}") in _handler_registry
