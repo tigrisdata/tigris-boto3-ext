@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 else:
     S3Client = object
 
-from ._internal import create_header_injector
+from ._internal import create_header_injector, has_active_injector
 from .context_managers import (
     TigrisFork,
     TigrisRename,
@@ -132,6 +132,11 @@ def delete_snapshot(
     """
     Delete a specific snapshot of a bucket.
 
+    The header is injected through the client's event system, so it applies to
+    every ``delete_bucket`` issued through this client while the call is in
+    flight. Do not run this helper concurrently on a shared client, and do not
+    share the client with other threads that delete buckets during the call.
+
     Args:
         s3_client: boto3 S3 client instance
         bucket_name: Name of the bucket that owns the snapshot
@@ -155,6 +160,10 @@ def delete_snapshot(
     if not snapshot_version:
         msg = "snapshot_version is required"
         raise ValueError(msg)
+
+    if has_active_injector(s3_client, "DeleteBucket"):
+        msg = "Cannot delete snapshot while another delete_snapshot call is in flight"
+        raise RuntimeError(msg)
 
     injector = create_header_injector(
         s3_client,

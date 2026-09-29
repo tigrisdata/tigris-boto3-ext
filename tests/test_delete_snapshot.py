@@ -3,7 +3,7 @@
 import pytest
 
 from tigris_boto3_ext import delete_snapshot
-from tigris_boto3_ext._internal import _handler_registry
+from tigris_boto3_ext._internal import _handler_registry, create_header_injector
 
 EVENT_NAME = "before-sign.s3.DeleteBucket"
 
@@ -59,3 +59,15 @@ class TestDeleteSnapshotHelper:
 
         mock_s3_client.delete_bucket.assert_not_called()
         mock_s3_client.meta.events.register.assert_not_called()
+
+    def test_rejects_concurrent_calls(self, mock_s3_client):
+        other = create_header_injector(
+            mock_s3_client, "DeleteBucket", {"X-Tigris-Snapshot-Version": "1"}
+        )
+        other.register()
+        try:
+            with pytest.raises(RuntimeError, match="Cannot delete"):
+                delete_snapshot(mock_s3_client, "my-bucket", "2")
+            mock_s3_client.delete_bucket.assert_not_called()
+        finally:
+            other.unregister()
