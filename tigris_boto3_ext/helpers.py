@@ -124,6 +124,51 @@ def list_snapshots(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
         return cast("dict[str, Any]", s3_client.list_buckets())
 
 
+def delete_snapshot(
+    s3_client: S3Client,
+    bucket_name: str,
+    snapshot_version: str,
+) -> dict[str, Any]:
+    """
+    Delete a specific snapshot of a bucket.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket that owns the snapshot
+        snapshot_version: Version of the snapshot to delete, as returned by
+            ``get_snapshot_version`` or listed by ``list_snapshots``
+
+    Returns:
+        Response from the underlying ``delete_bucket`` operation
+
+    Raises:
+        ValueError: If ``bucket_name`` or ``snapshot_version`` is empty
+
+    Usage:
+        result = create_snapshot(s3_client, 'my-bucket', snapshot_name='backup')
+        version = get_snapshot_version(result)
+        delete_snapshot(s3_client, 'my-bucket', version)
+    """
+    if not bucket_name:
+        msg = "bucket_name is required"
+        raise ValueError(msg)
+    if not snapshot_version:
+        msg = "snapshot_version is required"
+        raise ValueError(msg)
+
+    injector = create_header_injector(
+        s3_client,
+        "DeleteBucket",
+        {"X-Tigris-Snapshot-Version": snapshot_version},
+    )
+
+    try:
+        injector.register()
+        return cast("dict[str, Any]", s3_client.delete_bucket(Bucket=bucket_name))
+    finally:
+        injector.unregister()
+
+
 def create_fork(
     s3_client: S3Client,
     new_bucket_name: str,
