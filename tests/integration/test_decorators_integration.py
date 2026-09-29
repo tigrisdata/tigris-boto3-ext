@@ -1,10 +1,13 @@
 """Integration tests for decorators."""
 
+from tigris_boto3_ext import (
+    TigrisSnapshotEnabled,
+    forked_from,
+    snapshot_enabled,
+    with_snapshot,
+)
+
 from .conftest import bucket_exists, generate_bucket_name
-
-import pytest
-
-from tigris_boto3_ext import TigrisSnapshotEnabled, forked_from, snapshot_enabled, with_snapshot
 
 
 class TestSnapshotEnabledDecorator:
@@ -85,7 +88,8 @@ class TestWithSnapshotDecorator:
         cleanup_buckets.append(bucket_name)
 
         # Create bucket first
-        s3_client.create_bucket(Bucket=bucket_name)
+        with TigrisSnapshotEnabled(s3_client):
+            s3_client.create_bucket(Bucket=bucket_name)
 
         @with_snapshot(bucket_name)
         def list_bucket_snapshots(client):
