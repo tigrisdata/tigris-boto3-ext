@@ -3,19 +3,27 @@
 import time
 
 import pytest
-from .conftest import bucket_exists, generate_bucket_name
+from botocore.exceptions import ClientError
 
 from tigris_boto3_ext import (
     TigrisSnapshot,
     TigrisSnapshotEnabled,
     create_snapshot,
     create_snapshot_bucket,
+    delete_snapshot,
     get_object_from_snapshot,
     get_snapshot_version,
     head_object_from_snapshot,
     list_objects_from_snapshot,
     list_snapshots,
 )
+
+from .conftest import bucket_exists, generate_bucket_name
+
+
+def _snapshot_versions(list_response):
+    """Extract the snapshot versions from a list_snapshots response."""
+    return [bucket["Name"].split(";")[0] for bucket in list_response.get("Buckets", [])]
 
 
 class TestSnapshotCreation:
@@ -167,9 +175,7 @@ class TestSnapshotDataAccess:
         s3_client.put_object(Bucket=bucket_name, Key="file4.txt", Body=b"data4")
 
         # List objects from snapshot using helper
-        response = list_objects_from_snapshot(
-            s3_client, bucket_name, snapshot_version
-        )
+        response = list_objects_from_snapshot(s3_client, bucket_name, snapshot_version)
 
         assert "Contents" in response
         assert len(response["Contents"]) == 2
@@ -217,7 +223,9 @@ class TestSnapshotDataAccess:
         s3_client.put_object(Bucket=bucket_name, Key="v1.txt", Body=b"Version 1")
 
         # Create snapshot
-        snapshot_response = create_snapshot(s3_client, bucket_name, snapshot_name="snap1")
+        snapshot_response = create_snapshot(
+            s3_client, bucket_name, snapshot_name="snap1"
+        )
         snapshot_version = get_snapshot_version(snapshot_response)
 
         # Add more data after snapshot
@@ -232,6 +240,7 @@ class TestSnapshotDataAccess:
         assert "v1.txt" in keys
         assert "v2.txt" not in keys
 
+
 class TestSnapshotHelperFunctions:
     """Test snapshot helper functions comprehensively."""
 
@@ -244,7 +253,8 @@ class TestSnapshotHelperFunctions:
 
         result = create_snapshot_bucket(s3_client, bucket_name)
 
-        assert "Location" in result and result["Location"] == f'/{bucket_name}'
+        assert "Location" in result
+        assert result["Location"] == f"/{bucket_name}"
 
     def test_create_named_snapshot_helper(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -257,7 +267,9 @@ class TestSnapshotHelperFunctions:
         create_snapshot_bucket(s3_client, bucket_name)
 
         # Create a named snapshot
-        snapshot_response = create_snapshot(s3_client, bucket_name, snapshot_name="backup1")
+        snapshot_response = create_snapshot(
+            s3_client, bucket_name, snapshot_name="backup1"
+        )
         snapshot_version = get_snapshot_version(snapshot_response)
 
         assert snapshot_version is not None
@@ -311,7 +323,9 @@ class TestSnapshotHelperFunctions:
         assert retrieved_data == test_data
 
         # Test list_objects_from_snapshot
-        list_response = list_objects_from_snapshot(s3_client, bucket_name, snapshot_version)
+        list_response = list_objects_from_snapshot(
+            s3_client, bucket_name, snapshot_version
+        )
         assert "Contents" in list_response
         keys = [obj["Key"] for obj in list_response["Contents"]]
         assert test_key in keys
@@ -338,4 +352,56 @@ class TestSnapshotHelperFunctions:
         with TigrisSnapshotEnabled(s3_client):
             result = s3_client.create_bucket(Bucket=bucket_name_2)
 
-        assert "Location" in result and result["Location"] == f'/{bucket_name_2}'
+        assert "Location" in result
+        assert result["Location"] == f"/{bucket_name_2}"
+
+
+class TestSnapshotDeletion:
+    """Test deleting snapshots."""
+
+    def test_delete_snapshot_removes_only_that_snapshot(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """Deleting one snapshot leaves other snapshots and the bucket intact."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "delete-snap-")
+        cleanup_buckets.append(bucket_name)
+
+        create_snapshot_bucket(s3_client, bucket_name)
+        s3_client.put_object(Bucket=bucket_name, Key="file.txt", Body=b"data")
+
+        keep_version = get_snapshot_version(
+            create_snapshot(s3_client, bucket_name, snapshot_name="keep")
+        )
+        drop_version = get_snapshot_version(
+            create_snapshot(s3_client, bucket_name, snapshot_name="drop")
+        )
+        assert keep_version is not None
+        assert drop_version is not None
+        assert drop_version in _snapshot_versions(
+            list_snapshots(s3_client, bucket_name)
+        )
+
+        delete_snapshot(s3_client, bucket_name, drop_version)
+
+        versions = _snapshot_versions(list_snapshots(s3_client, bucket_name))
+        assert drop_version not in versions
+        assert keep_version in versions
+
+        # The bucket and its data must survive a snapshot deletion.
+        assert bucket_exists(s3_client, bucket_name)
+        body = s3_client.get_object(Bucket=bucket_name, Key="file.txt")["Body"].read()
+        assert body == b"data"
+
+    def test_delete_snapshot_with_unknown_version_raises(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """An unknown snapshot version is rejected rather than silently ignored."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "delete-missing-")
+        cleanup_buckets.append(bucket_name)
+
+        create_snapshot_bucket(s3_client, bucket_name)
+
+        with pytest.raises(ClientError):
+            delete_snapshot(s3_client, bucket_name, "0000000000000000000")
+
+        assert bucket_exists(s3_client, bucket_name)
