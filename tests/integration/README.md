@@ -59,14 +59,17 @@ uv run pytest tests/integration/test_snapshots.py
 # Test forks
 uv run pytest tests/integration/test_forks.py
 
+# Test bucket info
+uv run pytest tests/integration/test_bucket_info.py
+
+# Test object rename
+uv run pytest tests/integration/test_rename.py
+
 # Test context managers
 uv run pytest tests/integration/test_context_managers_integration.py
 
 # Test decorators
 uv run pytest tests/integration/test_decorators_integration.py
-
-# Test TigrisS3Client
-uv run pytest tests/integration/test_client_integration.py
 
 # Test Bundle API
 uv run pytest tests/integration/test_bundle.py
@@ -105,14 +108,16 @@ uv run pytest tests/integration/ -vv -s
 
 - **`test_snapshots.py`**: Tests snapshot creation, listing, and data access
 - **`test_forks.py`**: Tests bucket forking and data isolation
+- **`test_bucket_info.py`**: Tests `has_snapshot_enabled` and `get_bucket_info` on snapshot-enabled, regular, forked, and fork-parent buckets
+- **`test_rename.py`**: Tests in-place rename via the helper, context manager, and decorator, including nested and special-character keys
+- **`test_snapshots.py`**: Tests snapshot creation, listing, deletion, and data access
 - **`test_context_managers_integration.py`**: Tests context manager behavior
 - **`test_decorators_integration.py`**: Tests decorator functionality
-- **`test_client_integration.py`**: Tests TigrisS3Client wrapper
 - **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
 
 ## Test Bucket Naming
 
-All test buckets are prefixed with `tigris-boto3-ext-test-` followed by a timestamp to avoid conflicts. The `cleanup_buckets` fixture automatically removes these buckets after each test.
+All test buckets are prefixed with `tigris-boto3-ext-test-` followed by a random 12-character hex id to avoid conflicts. The `cleanup_buckets` fixture automatically removes these buckets after each test.
 
 ## Skipping Tests
 
@@ -137,7 +142,7 @@ echo $AWS_SECRET_ACCESS_KEY
 
 ### Bucket Already Exists Errors
 
-The tests use timestamps to create unique bucket names. If you encounter bucket name conflicts, ensure your system clock is correct.
+The tests adds a random suffix so conflicts are not expected. Buckets left behind by an interrupted run can be removed with the commands under "Cleanup Failures".
 
 ### Cleanup Failures
 
@@ -148,7 +153,7 @@ If tests fail and leave buckets behind, you can manually clean them up:
 aws s3 ls --endpoint-url $AWS_ENDPOINT_URL_S3 | grep tigris-boto3-ext-test
 
 # Remove a specific bucket
-aws s3 rb s3://tigris-boto3-ext-test-<timestamp> --endpoint-url $AWS_ENDPOINT_URL_S3 --force
+aws s3 rb s3://tigris-boto3-ext-test-<randomstring> --endpoint-url $AWS_ENDPOINT_URL_S3 --force
 ```
 
 ### Connection Errors
@@ -197,7 +202,10 @@ The integration tests cover:
 - ✅ Data isolation between forks and sources
 - ✅ Context manager usage and nesting
 - ✅ Decorator functionality
-- ✅ TigrisS3Client wrapper methods
+- ✅ Bucket info: snapshot-enabled flag and fork source metadata
+- ✅ In-place object rename via helper, context manager, and decorator
+- ✅ Deleting a snapshot without affecting other snapshots or the bucket
+- ✅ Rejecting deletion of an unknown snapshot version
 - ✅ Bundle API single and multi-object fetch
 - ✅ Bundle compression (gzip, zstd)
 - ✅ Bundle error handling (skip and fail modes)

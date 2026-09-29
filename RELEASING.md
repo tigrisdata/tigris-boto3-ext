@@ -6,24 +6,41 @@ This document describes the process for releasing new versions of `tigris-boto3-
 
 1. Ensure you have maintainer access to the PyPI project
 2. All tests are passing on the `main` branch
-3. The CHANGELOG has been updated with the new version's changes
+3. The pull requests merged since the last release have descriptive titles. The release workflow lets GitHub generate the release notes from the titles of the merged pull requests.
 
 ## Release Steps
 
 ### 1. Update Version
 
-Update the version number in `pyproject.toml`:
+The version is stored in two places and they must match. Update both:
+
+`pyproject.toml`:
 
 ```toml
 [project]
 version = "x.y.z"
 ```
 
+`tigris_boto3_ext/__init__.py`:
+
+```python
+__version__ = "x.y.z"
+```
+
+Check they agree before committing:
+
+```bash
+grep -n '^version' pyproject.toml
+grep -n '^__version__' tigris_boto3_ext/__init__.py
+```
+
+The tag in the next step must carry the same number, since the release workflow names the GitHub release from the tag.
+
 ### 2. Create and Push a Git Tag
 
 ```bash
 # Commit the version change
-git add pyproject.toml
+git add pyproject.toml tigris_boto3_ext/__init__.py
 git commit -m "Bump version to x.y.z"
 
 # Create a tag
