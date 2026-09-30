@@ -148,6 +148,7 @@ def delete_snapshot(
 
     Raises:
         ValueError: If ``bucket_name`` or ``snapshot_version`` is empty
+        RuntimeError: If another ``delete_snapshot`` call is in flight on this client
 
     Usage:
         result = create_snapshot(s3_client, 'my-bucket', snapshot_name='backup')

@@ -117,7 +117,7 @@ uv run pytest tests/integration/ -vv -s
 
 ## Test Bucket Naming
 
-All test buckets are prefixed with `tigris-boto3-ext-test-` followed by a random 12-character hex id to avoid conflicts. The `cleanup_buckets` fixture automatically removes these buckets after each test.
+All test buckets are named `tigris-boto3-ext-test-<suffix><id>`, where `<suffix>` describes the test (for example `delete-snap-`) and `<id>` is a random 12-character hex string from `uuid4`, so names never collide. The `cleanup_buckets` fixture automatically removes these buckets after each test.
 
 ## Skipping Tests
 
@@ -152,8 +152,8 @@ If tests fail and leave buckets behind, you can manually clean them up:
 # List test buckets
 aws s3 ls --endpoint-url $AWS_ENDPOINT_URL_S3 | grep tigris-boto3-ext-test
 
-# Remove a specific bucket
-aws s3 rb s3://tigris-boto3-ext-test-<randomstring> --endpoint-url $AWS_ENDPOINT_URL_S3 --force
+# Remove a specific bucket, using the full name printed by the listing above
+aws s3 rb s3://tigris-boto3-ext-test-<suffix><id> --endpoint-url $AWS_ENDPOINT_URL_S3 --force
 ```
 
 ### Connection Errors
