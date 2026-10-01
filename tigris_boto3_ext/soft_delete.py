@@ -8,9 +8,11 @@ if TYPE_CHECKING:
 else:
     S3Client = object
 
-from ._internal import create_header_injector
+from ._internal import create_header_injector, create_multi_operation_injector
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+""" Context Managers """
 
 
 class TigrisSoftDeleteEnabled:
@@ -70,6 +72,56 @@ class TigrisSoftDeleteEnabled:
         self._injector.unregister()
 
 
+class TigrisSoftDeleteView:
+    """
+    Context manager that points delete and list operations at a bucket's
+    soft-deleted objects instead of its live ones.
+
+    Inside the block:
+    - ``delete_object`` with a ``VersionId`` permanently removes that
+      soft-deleted version before its retention window expires.
+    - ``list_object_versions`` and ``list_objects_v2`` return soft-deleted
+      objects instead of live ones.
+
+    Usage:
+        with TigrisSoftDeleteView(s3_client):
+            deleted = s3_client.list_object_versions(Bucket='my-bucket')
+            s3_client.delete_object(
+                Bucket='my-bucket', Key='file.txt', VersionId='1787441627070249004'
+            )
+    """
+
+    OPERATIONS = ("DeleteObject", "ListObjectVersions", "ListObjectsV2")
+
+    def __init__(self, s3_client: S3Client):
+        """
+        Initialize context manager.
+
+        Args:
+            s3_client: boto3 S3 client instance
+        """
+        self.client = s3_client
+        self._injectors = create_multi_operation_injector(
+            s3_client,
+            list(self.OPERATIONS),
+            {"X-Tigris-Soft-Delete": "true"},
+        )
+
+    def __enter__(self) -> "TigrisSoftDeleteView":
+        """Enter context and register event handlers."""
+        for injector in self._injectors:
+            injector.register()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit context and unregister event handlers."""
+        for injector in self._injectors:
+            injector.unregister()
+
+
+""" Decorators """
+
+
 def soft_delete_enabled(
     retention_days: Optional[int] = None,
 ) -> Callable[[F], F]:
@@ -103,6 +155,30 @@ def soft_delete_enabled(
     return decorator
 
 
+def with_soft_delete_view(func: F) -> F:
+    """
+    Decorator that points delete and list operations inside the function at the
+    bucket's soft-deleted objects. See ``TigrisSoftDeleteView``.
+
+    The decorated function must accept an s3_client as its first argument.
+
+    Usage:
+        @with_soft_delete_view
+        def list_deleted(s3_client, bucket):
+            return s3_client.list_object_versions(Bucket=bucket)
+    """
+
+    @wraps(func)
+    def wrapper(s3_client: Any, *args: Any, **kwargs: Any) -> Any:
+        with TigrisSoftDeleteView(s3_client):
+            return func(s3_client, *args, **kwargs)
+
+    return wrapper  # type: ignore
+
+
+""" Helpers """
+
+
 def create_soft_delete_bucket(
     s3_client: S3Client,
     bucket_name: str,
@@ -132,3 +208,50 @@ def create_soft_delete_bucket(
     """
     with TigrisSoftDeleteEnabled(s3_client, retention_days):
         return cast("dict[str, Any]", s3_client.create_bucket(Bucket=bucket_name))
+
+
+def purge_deleted_object(
+    s3_client: S3Client,
+    bucket_name: str,
+    key: str,
+    version_id: str,
+) -> dict[str, Any]:
+    """
+    Permanently delete one soft-deleted version of an object.
+
+    The version is removed before its retention window expires and can no
+    longer be restored. ``version_id`` comes from the bucket's soft-delete view
+    (``TigrisSoftDeleteView`` around ``list_object_versions``). It is required:
+    without it the request would target the live object and soft-delete it
+    again instead of purging a version.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket
+        key: Key of the soft-deleted object
+        version_id: Version to purge, as listed in the soft-delete view
+
+    Returns:
+        Response from the underlying ``delete_object`` operation
+
+    Raises:
+        ValueError: If ``bucket_name``, ``key`` or ``version_id`` is empty
+
+    Usage:
+        purge_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
+    """
+    if not bucket_name:
+        msg = "bucket_name is required"
+        raise ValueError(msg)
+    if not key:
+        msg = "key is required"
+        raise ValueError(msg)
+    if not version_id:
+        msg = "version_id is required"
+        raise ValueError(msg)
+
+    with TigrisSoftDeleteView(s3_client):
+        return cast(
+            "dict[str, Any]",
+            s3_client.delete_object(Bucket=bucket_name, Key=key, VersionId=version_id),
+        )

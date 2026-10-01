@@ -13,8 +13,11 @@ from mypy_boto3_s3.type_defs import CreateBucketOutputTypeDef
 
 from tigris_boto3_ext import (
     TigrisSoftDeleteEnabled,
+    TigrisSoftDeleteView,
     create_soft_delete_bucket,
+    purge_deleted_object,
     soft_delete_enabled,
+    with_soft_delete_view,
 )
 
 s3 = boto3.client(
@@ -72,6 +75,38 @@ def example_retention_validation():
         print(f"Rejected: {e}")
 
 
+def example_soft_delete_view():
+    """List soft-deleted objects with the context manager or the decorator."""
+    print("\n=== TigrisSoftDeleteView context manager ===")
+
+    with TigrisSoftDeleteView(s3):
+        deleted = s3.list_object_versions(Bucket="my-bucket")
+    for version in deleted.get("Versions", []):
+        print(f"Recoverable: {version['Key']} (version {version['VersionId']})")
+
+    print("\n=== @with_soft_delete_view decorator ===")
+
+    @with_soft_delete_view
+    def deleted_keys(client: S3Client, bucket: str):
+        response = client.list_object_versions(Bucket=bucket)
+        return [v["Key"] for v in response.get("Versions", [])]
+
+    print(f"Recoverable keys: {deleted_keys(s3, 'my-bucket')}")
+
+
+def example_purge_deleted_version():
+    """Permanently remove a soft-deleted version before its window expires."""
+    print("\n=== purge_deleted_object helper ===")
+
+    with TigrisSoftDeleteView(s3):
+        deleted = s3.list_object_versions(Bucket="my-bucket")
+
+    for version in deleted.get("Versions", []):
+        if version["Key"] == "secrets.env":
+            purge_deleted_object(s3, "my-bucket", "secrets.env", version["VersionId"])
+            print(f"Purged secrets.env version {version['VersionId']}")
+
+
 if __name__ == "__main__":
     print("Tigris boto3 Extensions - Soft Delete Usage Examples")
     print("=" * 50)
@@ -80,3 +115,6 @@ if __name__ == "__main__":
     example_create_bucket_context_manager()
     example_create_bucket_decorator()
     example_retention_validation()
+
+    example_soft_delete_view()
+    example_purge_deleted_version()

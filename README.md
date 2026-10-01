@@ -82,6 +82,18 @@ with TigrisSoftDeleteEnabled(s3_client, retention_days=30):
     s3_client.create_bucket(Bucket='my-archive')
 ```
 
+#### Work with Soft-Deleted Objects
+
+```python
+from tigris_boto3_ext import TigrisSoftDeleteView
+
+with TigrisSoftDeleteView(s3_client):
+    # list_object_versions now returns soft-deleted objects, not live ones
+    deleted = s3_client.list_object_versions(Bucket='my-bucket')
+    # delete_object with a VersionId purges that soft-deleted version for good
+    s3_client.delete_object(Bucket='my-bucket', Key='file.txt', VersionId='1787441627070249004')
+```
+
 #### Rename Objects
 
 Tigris implements rename as a `copy_object` request plus the `X-Tigris-Rename: true`
@@ -102,7 +114,7 @@ with TigrisRename(s3_client):
 ### 2. Decorators
 
 ```python
-from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from, with_rename
+from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from, with_rename, with_soft_delete_view
 
 @snapshot_enabled
 def create_snapshot_enabled_bucket(s3_client, bucket_name):
@@ -158,6 +170,7 @@ from tigris_boto3_ext import (
     get_bucket_info,
     rename_object,
     create_soft_delete_bucket,
+    purge_deleted_object,
 )
 
 # Create snapshot-enabled bucket
@@ -192,6 +205,9 @@ create_soft_delete_bucket(s3_client, 'my-archive', retention_days=30)
 # Rename an object in place (no data rewrite)
 # This moves the object to a new path in your bucket like the `mv` command on Unix.
 rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
+
+# Permanently delete a soft deleted object
+purge_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
 ```
 
 ## Complete Examples
@@ -374,6 +390,7 @@ This library uses boto3's event system to inject Tigris-specific headers into S3
 - **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
 - **`X-Tigris-Soft-Delete: true`** or **`X-Tigris-Soft-Delete: <days>`** - Enables soft delete for bucket creation
 - **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
+- **`X-Tigris-Soft-Delete: true`** on `DeleteObject`, `ListObjectVersions` and `ListObjectsV2` - Switches the operation to the bucket's soft-deleted objects: purge a version or list the recoverable ones
 
 ### Response Headers (Returned by Tigris)
 
