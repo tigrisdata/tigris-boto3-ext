@@ -8,7 +8,11 @@ if TYPE_CHECKING:
 else:
     S3Client = object
 
-from ._internal import create_header_injector, create_multi_operation_injector
+from ._internal import (
+    create_header_injector,
+    create_multi_operation_injector,
+    has_active_injector,
+)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -255,3 +259,68 @@ def purge_deleted_object(
             "dict[str, Any]",
             s3_client.delete_object(Bucket=bucket_name, Key=key, VersionId=version_id),
         )
+
+
+def restore_deleted_object(
+    s3_client: S3Client,
+    bucket_name: str,
+    key: str,
+    version_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Restore a soft-deleted object so it is live again.
+
+    This is the undelete counterpart of ``purge_deleted_object``. It is
+    unrelated to thawing an archived object from a cold storage tier, which is
+    what a plain ``restore_object`` call does.
+
+    The headers are injected through the client's event system, so they apply
+    to every ``restore_object`` issued through this client while the call is in
+    flight. Do not run this helper concurrently on a shared client.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket
+        key: Key of the soft-deleted object
+        version_id: Soft-deleted version to restore, as listed in the
+            soft-delete view. None restores the most recent one.
+
+    Returns:
+        Response from the underlying ``restore_object`` operation
+
+    Raises:
+        ValueError: If ``bucket_name`` or ``key`` is empty
+        RuntimeError: If another restore is in flight on this client
+
+    Usage:
+        restore_deleted_object(s3_client, 'my-bucket', 'file.txt')
+        restore_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
+    """
+    if not bucket_name:
+        msg = "bucket_name is required"
+        raise ValueError(msg)
+    if not key:
+        msg = "key is required"
+        raise ValueError(msg)
+
+    if has_active_injector(s3_client, "RestoreObject"):
+        msg = (
+            "a RestoreObject header injection is already active on this client; "
+            "wait for the other call to finish or use a separate client"
+        )
+        raise RuntimeError(msg)
+
+    headers = {"X-Tigris-Restore-Type": "soft-delete"}
+    if version_id:
+        headers["X-Tigris-Restore-Version"] = version_id
+
+    injector = create_header_injector(s3_client, "RestoreObject", headers)
+
+    try:
+        injector.register()
+        return cast(
+            "dict[str, Any]",
+            s3_client.restore_object(Bucket=bucket_name, Key=key),
+        )
+    finally:
+        injector.unregister()

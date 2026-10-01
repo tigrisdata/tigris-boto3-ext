@@ -18,6 +18,7 @@ from tigris_boto3_ext import (
     purge_deleted_object,
     soft_delete_enabled,
     with_soft_delete_view,
+    restore_deleted_object,
 )
 
 s3 = boto3.client(
@@ -107,6 +108,22 @@ def example_purge_deleted_version():
             print(f"Purged secrets.env version {version['VersionId']}")
 
 
+def example_restore_deleted_object():
+    """Bring a soft-deleted object back within its retention window."""
+    print("\n=== restore_deleted_object helper ===")
+
+    # Most recent soft-deleted version
+    restore_deleted_object(s3, "my-bucket", "report.pdf")
+    print("Restored the most recent version of report.pdf")
+
+    # A specific version, picked from the soft-delete view
+    with TigrisSoftDeleteView(s3):
+        deleted = s3.list_object_versions(Bucket="my-bucket", Prefix="contracts/")
+    for version in deleted.get("Versions", []):
+        restore_deleted_object(s3, "my-bucket", version["Key"], version["VersionId"])
+        print(f"Restored {version['Key']} (version {version['VersionId']})")
+
+
 if __name__ == "__main__":
     print("Tigris boto3 Extensions - Soft Delete Usage Examples")
     print("=" * 50)
@@ -118,3 +135,4 @@ if __name__ == "__main__":
 
     example_soft_delete_view()
     example_purge_deleted_version()
+    example_restore_deleted_object()

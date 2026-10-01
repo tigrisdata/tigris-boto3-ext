@@ -171,6 +171,7 @@ from tigris_boto3_ext import (
     rename_object,
     create_soft_delete_bucket,
     purge_deleted_object,
+    restore_deleted_object,
 )
 
 # Create snapshot-enabled bucket
@@ -208,6 +209,10 @@ rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
 
 # Permanently delete a soft deleted object
 purge_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
+
+# Bring a soft-deleted object back; omit the version to restore the most recent one
+restore_deleted_object(s3_client, 'my-bucket', 'file.txt')
+restore_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
 ```
 
 ## Complete Examples
@@ -391,6 +396,7 @@ This library uses boto3's event system to inject Tigris-specific headers into S3
 - **`X-Tigris-Soft-Delete: true`** or **`X-Tigris-Soft-Delete: <days>`** - Enables soft delete for bucket creation
 - **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
 - **`X-Tigris-Soft-Delete: true`** on `DeleteObject`, `ListObjectVersions` and `ListObjectsV2` - Switches the operation to the bucket's soft-deleted objects: purge a version or list the recoverable ones
+- **`X-Tigris-Restore-Type: soft-delete`** with optional **`X-Tigris-Restore-Version: <version>`** on `RestoreObject` - Restores a soft-deleted object instead of thawing an archived one
 
 ### Response Headers (Returned by Tigris)
 

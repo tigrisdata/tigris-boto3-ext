@@ -7,9 +7,79 @@ from tigris_boto3_ext import (
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
     purge_deleted_object,
+    restore_deleted_object,
     soft_delete_enabled,
     with_soft_delete_view,
 )
+from tigris_boto3_ext._internal import create_header_injector
+
+RESTORE_EVENT = "before-sign.s3.RestoreObject"
+
+
+class TestRestoreDeletedObjectHelper:
+    def test_restores_a_specific_version(self, mock_s3_client, mock_request_class):
+        mock_s3_client.restore_object.return_value = {"ResponseMetadata": {}}
+
+        result = restore_deleted_object(mock_s3_client, "my-bucket", "file.txt", "123")
+
+        assert result == {"ResponseMetadata": {}}
+        mock_s3_client.restore_object.assert_called_once_with(
+            Bucket="my-bucket", Key="file.txt"
+        )
+        event_name, handler = mock_s3_client.meta.events.register.call_args[0]
+        assert event_name == RESTORE_EVENT
+        request = mock_request_class()
+        handler(request)
+        assert request.headers == {
+            "X-Tigris-Restore-Type": "soft-delete",
+            "X-Tigris-Restore-Version": "123",
+        }
+        mock_s3_client.meta.events.unregister.assert_called_once()
+
+    def test_omits_version_header_without_a_version(
+        self, mock_s3_client, mock_request_class
+    ):
+        restore_deleted_object(mock_s3_client, "my-bucket", "file.txt")
+
+        _, handler = mock_s3_client.meta.events.register.call_args[0]
+        request = mock_request_class()
+        handler(request)
+        assert request.headers == {"X-Tigris-Restore-Type": "soft-delete"}
+
+    def test_unregisters_when_restore_object_raises(self, mock_s3_client):
+        mock_s3_client.restore_object.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            restore_deleted_object(mock_s3_client, "my-bucket", "file.txt", "123")
+
+        mock_s3_client.meta.events.unregister.assert_called_once()
+
+    def test_refuses_to_overlap_on_the_same_client(self, mock_s3_client):
+        other = create_header_injector(
+            mock_s3_client, "RestoreObject", {"X-Tigris-Restore-Type": "soft-delete"}
+        )
+        other.register()
+        try:
+            with pytest.raises(RuntimeError, match="already active"):
+                restore_deleted_object(mock_s3_client, "my-bucket", "file.txt", "123")
+            mock_s3_client.restore_object.assert_not_called()
+        finally:
+            other.unregister()
+
+    @pytest.mark.parametrize(
+        ("bucket_name", "key", "message"),
+        [
+            ("", "file.txt", "bucket_name is required"),
+            ("my-bucket", "", "key is required"),
+        ],
+    )
+    def test_rejects_empty_arguments(self, mock_s3_client, bucket_name, key, message):
+        with pytest.raises(ValueError, match=message):
+            restore_deleted_object(mock_s3_client, bucket_name, key)
+
+        mock_s3_client.restore_object.assert_not_called()
+        mock_s3_client.meta.events.register.assert_not_called()
+
 
 EVENT_NAME = "before-sign.s3.CreateBucket"
 
