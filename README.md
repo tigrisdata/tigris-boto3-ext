@@ -14,6 +14,7 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 - **Snapshot Support**: Create, list, and read from bucket snapshots
 - **Bucket Forking**: Create forked buckets from existing buckets or snapshots
 - **Object Rename**: Rename (move) objects in place without rewriting their data
+- **Soft Delete**: Create buckets whose deleted objects stay recoverable for a 7 to 90 day retention window
 - **Multiple Usage Patterns**: Context managers, decorators, helper functions, or wrapper client
 - **Zero Configuration**: Works with existing boto3 code
 - **Type Safe**: Full type hints for IDE support
@@ -67,6 +68,20 @@ with TigrisFork(s3_client, 'source-bucket', snapshot_version='12345'):
     s3_client.create_bucket(Bucket='forked-from-snapshot')
 ```
 
+#### Enable Soft Delete for Bucket Creation
+
+```python
+from tigris_boto3_ext import TigrisSoftDeleteEnabled
+
+# Default 7-day retention window
+with TigrisSoftDeleteEnabled(s3_client):
+    s3_client.create_bucket(Bucket='my-bucket')
+
+# Custom window, 7 to 90 days
+with TigrisSoftDeleteEnabled(s3_client, retention_days=30):
+    s3_client.create_bucket(Bucket='my-archive')
+```
+
 #### Rename Objects
 
 Tigris implements rename as a `copy_object` request plus the `X-Tigris-Rename: true`
@@ -107,6 +122,10 @@ def read_from_snapshot(s3_client, key):
 def create_my_fork(s3_client, new_bucket):
     return s3_client.create_bucket(Bucket=new_bucket)
 
+@soft_delete_enabled(retention_days=30)
+def create_archive_bucket(s3_client, bucket_name):
+    return s3_client.create_bucket(Bucket=bucket_name)
+
 @with_rename
 def rename_file(s3_client, bucket, old_key, new_key):
     return s3_client.copy_object(
@@ -138,6 +157,7 @@ from tigris_boto3_ext import (
     has_snapshot_enabled,
     get_bucket_info,
     rename_object,
+    create_soft_delete_bucket,
 )
 
 # Create snapshot-enabled bucket
@@ -165,6 +185,9 @@ create_fork(s3_client, 'new-bucket', 'source-bucket', snapshot_version=version)
 obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
 objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='data/')
 metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
+
+# Create a bucket whose deleted objects stay recoverable for 30 days
+create_soft_delete_bucket(s3_client, 'my-archive', retention_days=30)
 
 # Rename an object in place (no data rewrite)
 # This moves the object to a new path in your bucket like the `mv` command on Unix.
@@ -349,6 +372,7 @@ This library uses boto3's event system to inject Tigris-specific headers into S3
 - **`X-Tigris-Snapshot-Version: <version>`** - Reads from specific snapshot version
 - **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
 - **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
+- **`X-Tigris-Soft-Delete: true`** or **`X-Tigris-Soft-Delete: <days>`** - Enables soft delete for bucket creation
 - **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
 
 ### Response Headers (Returned by Tigris)
