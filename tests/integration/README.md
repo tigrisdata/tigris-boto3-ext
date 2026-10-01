@@ -160,6 +160,10 @@ aws s3 ls --endpoint-url $AWS_ENDPOINT_URL_S3 | grep tigris-boto3-ext-test
 aws s3 rb s3://tigris-boto3-ext-test-<suffix><id> --endpoint-url $AWS_ENDPOINT_URL_S3 --force
 ```
 
+### Soft-Delete Buckets After a Run
+
+Buckets created by `test_soft_delete.py` have soft delete enabled. The tests purge their soft-deleted objects during cleanup, but deleting such a bucket only moves it to a recoverable state, so it stays in the deleted list until its retention window ends, at most eight days. Names carry a random id, so these leftovers never collide with later runs.
+
 ### Connection Errors
 
 Verify your endpoint URL and credentials:

@@ -8,17 +8,15 @@ one. See https://www.tigrisdata.com/docs/buckets/soft-delete/
 """
 
 import boto3
-from mypy_boto3_s3.client import S3Client
-from mypy_boto3_s3.type_defs import CreateBucketOutputTypeDef
 
 from tigris_boto3_ext import (
     TigrisSoftDeleteEnabled,
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
     purge_deleted_object,
+    restore_deleted_object,
     soft_delete_enabled,
     with_soft_delete_view,
-    restore_deleted_object,
 )
 
 s3 = boto3.client(
@@ -57,9 +55,7 @@ def example_create_bucket_decorator():
     print("\n=== @soft_delete_enabled decorator ===")
 
     @soft_delete_enabled(retention_days=90)
-    def create_compliance_bucket(
-        client: S3Client, name: str
-    ) -> CreateBucketOutputTypeDef:
+    def create_compliance_bucket(client, name):
         return client.create_bucket(Bucket=name)
 
     create_compliance_bucket(s3, "audit-logs")
@@ -80,6 +76,10 @@ def example_soft_delete_view():
     """List soft-deleted objects with the context manager or the decorator."""
     print("\n=== TigrisSoftDeleteView context manager ===")
 
+    # Delete something so the soft-delete view has an entry to show
+    s3.put_object(Bucket="my-bucket", Key="notes.txt", Body=b"draft")
+    s3.delete_object(Bucket="my-bucket", Key="notes.txt")
+
     with TigrisSoftDeleteView(s3):
         deleted = s3.list_object_versions(Bucket="my-bucket")
     for version in deleted.get("Versions", []):
@@ -88,7 +88,7 @@ def example_soft_delete_view():
     print("\n=== @with_soft_delete_view decorator ===")
 
     @with_soft_delete_view
-    def deleted_keys(client: S3Client, bucket: str):
+    def deleted_keys(client, bucket):
         response = client.list_object_versions(Bucket=bucket)
         return [v["Key"] for v in response.get("Versions", [])]
 
@@ -99,24 +99,33 @@ def example_purge_deleted_version():
     """Permanently remove a soft-deleted version before its window expires."""
     print("\n=== purge_deleted_object helper ===")
 
+    # A file uploaded by mistake: deleting it only makes it recoverable
+    s3.put_object(Bucket="my-bucket", Key="secrets.env", Body=b"API_KEY=...")
+    s3.delete_object(Bucket="my-bucket", Key="secrets.env")
+
+    # Find its soft-deleted version and remove it for good
     with TigrisSoftDeleteView(s3):
-        deleted = s3.list_object_versions(Bucket="my-bucket")
+        deleted = s3.list_object_versions(Bucket="my-bucket", Prefix="secrets.env")
 
     for version in deleted.get("Versions", []):
         if version["Key"] == "secrets.env":
-            purge_deleted_object(s3, "my-bucket", "secrets.env", version["VersionId"])
-            print(f"Purged secrets.env version {version['VersionId']}")
+            purge_deleted_object(s3, "my-bucket", version["Key"], version["VersionId"])
+            print(f"Purged {version['Key']} version {version['VersionId']}")
 
 
 def example_restore_deleted_object():
     """Bring a soft-deleted object back within its retention window."""
     print("\n=== restore_deleted_object helper ===")
 
-    # Most recent soft-deleted version
+    # Delete a file, then restore its most recent soft-deleted version
+    s3.put_object(Bucket="my-bucket", Key="report.pdf", Body=b"quarterly numbers")
+    s3.delete_object(Bucket="my-bucket", Key="report.pdf")
     restore_deleted_object(s3, "my-bucket", "report.pdf")
     print("Restored the most recent version of report.pdf")
 
-    # A specific version, picked from the soft-delete view
+    # Delete another one, then restore a specific version from the soft-delete view
+    s3.put_object(Bucket="my-bucket", Key="contracts/q1.pdf", Body=b"signed")
+    s3.delete_object(Bucket="my-bucket", Key="contracts/q1.pdf")
     with TigrisSoftDeleteView(s3):
         deleted = s3.list_object_versions(Bucket="my-bucket", Prefix="contracts/")
     for version in deleted.get("Versions", []):
@@ -132,7 +141,6 @@ if __name__ == "__main__":
     example_create_bucket_context_manager()
     example_create_bucket_decorator()
     example_retention_validation()
-
     example_soft_delete_view()
     example_purge_deleted_version()
     example_restore_deleted_object()

@@ -1,5 +1,6 @@
 """Soft delete: recoverable deletes with a retention window."""
 
+import threading
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, cast
 
@@ -15,6 +16,7 @@ from ._internal import (
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
+_restore_lock = threading.Lock()
 
 """ Context Managers """
 
@@ -43,22 +45,29 @@ class TigrisSoftDeleteEnabled:
 
         Args:
             s3_client: boto3 S3 client instance
-            retention_days: Retention window in days, 7 to 90. None uses the
-                default 7-day window.
+            retention_days: Retention window in whole days, 7 to 90. None uses
+                the default 7-day window.
+
+        Raises:
+            TypeError: If ``retention_days`` is not an int
+            ValueError: If ``retention_days`` is outside 7 to 90
         """
         self.client = s3_client
         self.retention_days = retention_days
 
         if retention_days is None:
             header_value = "true"
-        elif self.MIN_RETENTION_DAYS <= retention_days <= self.MAX_RETENTION_DAYS:
-            header_value = str(retention_days)
         else:
-            msg = (
-                f"retention_days must be between {self.MIN_RETENTION_DAYS} "
-                f"and {self.MAX_RETENTION_DAYS}, got {retention_days}"
-            )
-            raise ValueError(msg)
+            if isinstance(retention_days, bool) or not isinstance(retention_days, int):
+                msg = f"retention_days must be a whole number of days, got {retention_days!r}"
+                raise TypeError(msg)
+            if not self.MIN_RETENTION_DAYS <= retention_days <= self.MAX_RETENTION_DAYS:
+                msg = (
+                    f"retention_days must be between {self.MIN_RETENTION_DAYS} "
+                    f"and {self.MAX_RETENTION_DAYS}, got {retention_days}"
+                )
+                raise ValueError(msg)
+            header_value = str(retention_days)
 
         self._injector = create_header_injector(
             s3_client,
@@ -80,6 +89,10 @@ class TigrisSoftDeleteView:
     """
     Context manager that points delete and list operations at a bucket's
     soft-deleted objects instead of its live ones.
+
+    The header applies to every matching operation issued through this client
+    while the block is active, from any thread. Do not share the client with
+    other threads that delete or list objects during the block.
 
     Inside the block:
     - ``delete_object`` with a ``VersionId`` permanently removes that
@@ -276,7 +289,8 @@ def restore_deleted_object(
 
     The headers are injected through the client's event system, so they apply
     to every ``restore_object`` issued through this client while the call is in
-    flight. Do not run this helper concurrently on a shared client.
+    flight. A second restore on the same client during that window is refused
+    rather than risk carrying the wrong version.
 
     Args:
         s3_client: boto3 S3 client instance
@@ -289,7 +303,8 @@ def restore_deleted_object(
         Response from the underlying ``restore_object`` operation
 
     Raises:
-        ValueError: If ``bucket_name`` or ``key`` is empty
+        ValueError: If ``bucket_name`` or ``key`` is empty, or ``version_id``
+            is an empty string
         RuntimeError: If another restore is in flight on this client
 
     Usage:
@@ -302,22 +317,29 @@ def restore_deleted_object(
     if not key:
         msg = "key is required"
         raise ValueError(msg)
-
-    if has_active_injector(s3_client, "RestoreObject"):
+    if version_id is not None and not version_id:
         msg = (
-            "a RestoreObject header injection is already active on this client; "
-            "wait for the other call to finish or use a separate client"
+            "version_id must not be empty; pass None to restore the most recent version"
         )
-        raise RuntimeError(msg)
+        raise ValueError(msg)
 
     headers = {"X-Tigris-Restore-Type": "soft-delete"}
-    if version_id:
+    if version_id is not None:
         headers["X-Tigris-Restore-Version"] = version_id
 
     injector = create_header_injector(s3_client, "RestoreObject", headers)
 
-    try:
+    # Check and register under one lock so two threads cannot both pass the check.
+    with _restore_lock:
+        if has_active_injector(s3_client, "RestoreObject"):
+            msg = (
+                "a RestoreObject header injection is already active on this client; "
+                "wait for the other call to finish or use a separate client"
+            )
+            raise RuntimeError(msg)
         injector.register()
+
+    try:
         return cast(
             "dict[str, Any]",
             s3_client.restore_object(Bucket=bucket_name, Key=key),

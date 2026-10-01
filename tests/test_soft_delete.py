@@ -80,6 +80,13 @@ class TestRestoreDeletedObjectHelper:
         mock_s3_client.restore_object.assert_not_called()
         mock_s3_client.meta.events.register.assert_not_called()
 
+    def test_rejects_an_empty_version_id(self, mock_s3_client):
+        with pytest.raises(ValueError, match="version_id must not be empty"):
+            restore_deleted_object(mock_s3_client, "my-bucket", "file.txt", "")
+
+        mock_s3_client.restore_object.assert_not_called()
+        mock_s3_client.meta.events.register.assert_not_called()
+
 
 EVENT_NAME = "before-sign.s3.CreateBucket"
 
@@ -104,6 +111,13 @@ class TestTigrisSoftDeleteEnabled:
     @pytest.mark.parametrize("retention_days", [0, 6, 91, -1])
     def test_rejects_retention_outside_range(self, mock_s3_client, retention_days):
         with pytest.raises(ValueError, match="between 7 and 90"):
+            TigrisSoftDeleteEnabled(mock_s3_client, retention_days)
+
+        mock_s3_client.meta.events.register.assert_not_called()
+
+    @pytest.mark.parametrize("retention_days", [7.5, "30", True])
+    def test_rejects_non_integer_retention(self, mock_s3_client, retention_days):
+        with pytest.raises(TypeError, match="whole number of days"):
             TigrisSoftDeleteEnabled(mock_s3_client, retention_days)
 
         mock_s3_client.meta.events.register.assert_not_called()

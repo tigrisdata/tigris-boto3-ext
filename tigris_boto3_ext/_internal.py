@@ -8,8 +8,10 @@ else:
     S3Client = object
 
 # Global registry to track shared handlers and active injectors
-# Key: (client_id, event_name) -> (handler_function, set of active injector IDs)
-_handler_registry: dict[tuple[int, str], tuple[Callable, set[int]]] = {}
+# Key: (client_id, event_name) -> (handler, {injector id: headers}) in registration order
+_handler_registry: dict[
+    tuple[int, str], tuple[Callable, dict[int, dict[str, str]]]
+] = {}
 
 
 class HeaderInjector:
@@ -37,43 +39,49 @@ class HeaderInjector:
         """Set all headers to be injected."""
         self.headers = headers.copy()
 
-    def _create_shared_handler(self) -> Callable:
-        """Create a shared event handler that gets headers from the first active injector."""
+    def _create_shared_handler(self, active: dict[int, dict[str, str]]) -> Callable:
+        """Create the shared handler that injects headers from every active injector."""
 
         def handler(request: Any, **kwargs: Any) -> None:
-            # Inject headers from this instance (first registered wins)
-            for name, value in self.headers.items():
-                request.headers[name] = value
+            # Snapshot first: another thread may enter or exit a context on this
+            # client while a request is being signed.
+            for headers in tuple(active.values()):
+                for name, value in headers.items():
+                    if name in request.headers:
+                        del request.headers[name]
+                    request.headers[name] = value
 
         return handler
 
     def register(self) -> None:
-        """Register event handler with boto3, sharing handler across nested contexts."""
+        """Register event handler with boto3, sharing one handler across nested contexts."""
         if self._registry_key in _handler_registry:
-            # Handler already exists, just add this instance to the active set
-            handler, active_injectors = _handler_registry[self._registry_key]
-            if self._instance_id not in active_injectors:
-                active_injectors.add(self._instance_id)
+            _, active = _handler_registry[self._registry_key]
+            active[self._instance_id] = self.headers
         else:
-            # First registration, create and register shared handler
-            handler = self._create_shared_handler()
+            active = {self._instance_id: self.headers}
+            handler = self._create_shared_handler(active)
             self.client.meta.events.register(self.event_name, handler)
-            _handler_registry[self._registry_key] = (handler, {self._instance_id})
+            _handler_registry[self._registry_key] = (handler, active)
 
     def unregister(self) -> None:
-        """Unregister event handler from boto3, only removing when no active contexts remain."""
+        """Unregister this injector, removing the handler when no contexts remain."""
         if self._registry_key not in _handler_registry:
-            return  # Not registered
+            return
 
-        handler, active_injectors = _handler_registry[self._registry_key]
+        handler, active = _handler_registry[self._registry_key]
 
-        # Remove this instance from the active set
-        active_injectors.discard(self._instance_id)
+        if self._instance_id not in active:
+            return
 
-        # If no more active injectors, unregister the handler
-        if not active_injectors:
-            self.client.meta.events.unregister(self.event_name, handler)
-            del _handler_registry[self._registry_key]
+        if len(active) > 1:
+            # Other contexts still use the handler: drop only this one.
+            del active[self._instance_id]
+            return
+
+        # Last one out: remove the handler and discard the whole entry.
+        self.client.meta.events.unregister(self.event_name, handler)
+        del _handler_registry[self._registry_key]
 
 
 def create_header_injector(

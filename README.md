@@ -26,6 +26,43 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 pip install tigris-boto3-ext
 ```
 
+## How It Works
+
+This library uses boto3's event system to inject Tigris-specific headers into S3 API requests:
+
+### Request Headers (Sent to Tigris)
+
+- **`X-Tigris-Enable-Snapshot: true`** - Enables snapshot support for bucket creation
+- **`X-Tigris-Snapshot: true; name=<name>`** - Creates a snapshot
+- **`X-Tigris-Snapshot: <bucket_name>`** - Lists snapshots for a bucket
+- **`X-Tigris-Snapshot-Version: <version>`** - Reads from specific snapshot version
+- **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
+- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
+- **`X-Tigris-Soft-Delete: true`** or **`X-Tigris-Soft-Delete: <days>`** - Enables soft delete for bucket creation
+- **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
+- **`X-Tigris-Soft-Delete: true`** on `DeleteObject`, `ListObjectVersions` and `ListObjectsV2` - Switches the operation to the bucket's soft-deleted objects: purge a version or list the recoverable ones
+- **`X-Tigris-Restore-Type: soft-delete`** with optional **`X-Tigris-Restore-Version: <version>`** on `RestoreObject` - Restores a soft-deleted object instead of thawing an archived one
+
+### Response Headers (Returned by Tigris)
+
+The following custom headers are returned in HeadBucket responses and can be accessed via `get_bucket_info()` and `has_snapshot_enabled()`:
+
+- **`X-Tigris-Enable-Snapshot: true`** - Present when snapshots are enabled for the bucket
+- **`X-Tigris-Fork-Source-Bucket: <bucket_name>`** - Present on forked buckets, indicates the parent bucket
+- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Present on forked buckets, indicates the snapshot version
+
+The library registers event handlers on `before-sign.s3.*` events to add request headers transparently.
+
+### Thread Safety
+
+Header injection is registered on the boto3 client, not on a single request. While a context manager, decorator or helper from this library is active, every matching operation on that client carries the injected headers, including operations issued from other threads. Use a separate client per thread when combining these features with concurrent work.
+
+## Requirements
+
+- Python 3.9+
+- boto3 >= 1.26.0
+
+
 ## Usage Patterns
 
 ### 1. Context Managers (Recommended)
@@ -380,38 +417,6 @@ except BundleError as e:
 ```
 
 See [`examples/bundle_usage.py`](examples/bundle_usage.py) for more patterns including error handling, response metadata, and ML training batches.
-
-## How It Works
-
-This library uses boto3's event system to inject Tigris-specific headers into S3 API requests:
-
-### Request Headers (Sent to Tigris)
-
-- **`X-Tigris-Enable-Snapshot: true`** - Enables snapshot support for bucket creation
-- **`X-Tigris-Snapshot: true; name=<name>`** - Creates a snapshot
-- **`X-Tigris-Snapshot: <bucket_name>`** - Lists snapshots for a bucket
-- **`X-Tigris-Snapshot-Version: <version>`** - Reads from specific snapshot version
-- **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
-- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
-- **`X-Tigris-Soft-Delete: true`** or **`X-Tigris-Soft-Delete: <days>`** - Enables soft delete for bucket creation
-- **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
-- **`X-Tigris-Soft-Delete: true`** on `DeleteObject`, `ListObjectVersions` and `ListObjectsV2` - Switches the operation to the bucket's soft-deleted objects: purge a version or list the recoverable ones
-- **`X-Tigris-Restore-Type: soft-delete`** with optional **`X-Tigris-Restore-Version: <version>`** on `RestoreObject` - Restores a soft-deleted object instead of thawing an archived one
-
-### Response Headers (Returned by Tigris)
-
-The following custom headers are returned in HeadBucket responses and can be accessed via `get_bucket_info()` and `has_snapshot_enabled()`:
-
-- **`X-Tigris-Enable-Snapshot: true`** - Present when snapshots are enabled for the bucket
-- **`X-Tigris-Fork-Source-Bucket: <bucket_name>`** - Present on forked buckets, indicates the parent bucket
-- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Present on forked buckets, indicates the snapshot version
-
-The library registers event handlers on `before-sign.s3.*` events to add request headers transparently.
-
-## Requirements
-
-- Python 3.9+
-- boto3 >= 1.26.0
 
 ## Development
 
