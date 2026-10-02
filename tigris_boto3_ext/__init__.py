@@ -23,7 +23,12 @@ from .context_managers import (
     TigrisSnapshot,
     TigrisSnapshotEnabled,
 )
-from .decorators import forked_from, snapshot_enabled, with_rename, with_snapshot
+from .decorators import (
+    forked_from,
+    snapshot_enabled,
+    with_rename,
+    with_snapshot,
+)
 from .helpers import (
     create_fork,
     create_snapshot,
@@ -38,8 +43,17 @@ from .helpers import (
     list_snapshots,
     rename_object,
 )
+from .soft_delete import (
+    TigrisSoftDeleteEnabled,
+    TigrisSoftDeleteView,
+    create_soft_delete_bucket,
+    purge_deleted_object,
+    restore_deleted_object,
+    soft_delete_enabled,
+    with_soft_delete_view,
+)
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     # Bundle API
@@ -52,6 +66,14 @@ __all__ = [
     "BUNDLE_COMPRESSION_ZSTD",
     "BUNDLE_ON_ERROR_SKIP",
     "BUNDLE_ON_ERROR_FAIL",
+    # Soft Delete
+    "TigrisSoftDeleteEnabled",
+    "TigrisSoftDeleteView",
+    "create_soft_delete_bucket",
+    "soft_delete_enabled",
+    "with_soft_delete_view",
+    "purge_deleted_object",
+    "restore_deleted_object",
     # Context Managers
     "TigrisSnapshotEnabled",
     "TigrisSnapshot",

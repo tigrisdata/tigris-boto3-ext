@@ -14,6 +14,7 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 - **Snapshot Support**: Create, list, and read from bucket snapshots
 - **Bucket Forking**: Create forked buckets from existing buckets or snapshots
 - **Object Rename**: Rename (move) objects in place without rewriting their data
+- **Soft Delete**: Create buckets whose deleted objects stay recoverable for a 7 to 90 day retention window
 - **Multiple Usage Patterns**: Context managers, decorators, helper functions, or wrapper client
 - **Zero Configuration**: Works with existing boto3 code
 - **Type Safe**: Full type hints for IDE support
@@ -24,6 +25,43 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 ```bash
 pip install tigris-boto3-ext
 ```
+
+## How It Works
+
+This library uses boto3's event system to inject Tigris-specific headers into S3 API requests:
+
+### Request Headers (Sent to Tigris)
+
+- **`X-Tigris-Enable-Snapshot: true`** - Enables snapshot support for bucket creation
+- **`X-Tigris-Snapshot: true; name=<name>`** - Creates a snapshot
+- **`X-Tigris-Snapshot: <bucket_name>`** - Lists snapshots for a bucket
+- **`X-Tigris-Snapshot-Version: <version>`** - Reads from specific snapshot version
+- **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
+- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
+- **`X-Tigris-Soft-Delete: true`** or **`X-Tigris-Soft-Delete: <days>`** - Enables soft delete for bucket creation
+- **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
+- **`X-Tigris-Soft-Delete: true`** on `DeleteObject`, `ListObjectVersions` and `ListObjectsV2` - Switches the operation to the bucket's soft-deleted objects: purge a version or list the recoverable ones
+- **`X-Tigris-Restore-Type: soft-delete`** with optional **`X-Tigris-Restore-Version: <version>`** on `RestoreObject` - Restores a soft-deleted object instead of thawing an archived one
+
+### Response Headers (Returned by Tigris)
+
+The following custom headers are returned in HeadBucket responses and can be accessed via `get_bucket_info()` and `has_snapshot_enabled()`:
+
+- **`X-Tigris-Enable-Snapshot: true`** - Present when snapshots are enabled for the bucket
+- **`X-Tigris-Fork-Source-Bucket: <bucket_name>`** - Present on forked buckets, indicates the parent bucket
+- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Present on forked buckets, indicates the snapshot version
+
+The library registers event handlers on `before-sign.s3.*` events to add request headers transparently.
+
+### Thread Safety
+
+Header injection is registered on the boto3 client, not on a single request. While a context manager, decorator or helper from this library is active, every matching operation on that client carries the injected headers, including operations issued from other threads. Use a separate client per thread when combining these features with concurrent work.
+
+## Requirements
+
+- Python 3.9+
+- boto3 >= 1.26.0
+
 
 ## Usage Patterns
 
@@ -67,6 +105,32 @@ with TigrisFork(s3_client, 'source-bucket', snapshot_version='12345'):
     s3_client.create_bucket(Bucket='forked-from-snapshot')
 ```
 
+#### Enable Soft Delete for Bucket Creation
+
+```python
+from tigris_boto3_ext import TigrisSoftDeleteEnabled
+
+# Default 7-day retention window
+with TigrisSoftDeleteEnabled(s3_client):
+    s3_client.create_bucket(Bucket='my-bucket')
+
+# Custom window, 7 to 90 days
+with TigrisSoftDeleteEnabled(s3_client, retention_days=30):
+    s3_client.create_bucket(Bucket='my-archive')
+```
+
+#### Work with Soft-Deleted Objects
+
+```python
+from tigris_boto3_ext import TigrisSoftDeleteView
+
+with TigrisSoftDeleteView(s3_client):
+    # list_object_versions now returns soft-deleted objects, not live ones
+    deleted = s3_client.list_object_versions(Bucket='my-bucket')
+    # delete_object with a VersionId purges that soft-deleted version for good
+    s3_client.delete_object(Bucket='my-bucket', Key='file.txt', VersionId='1787441627070249004')
+```
+
 #### Rename Objects
 
 Tigris implements rename as a `copy_object` request plus the `X-Tigris-Rename: true`
@@ -87,7 +151,7 @@ with TigrisRename(s3_client):
 ### 2. Decorators
 
 ```python
-from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from, with_rename
+from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from, with_rename, with_soft_delete_view
 
 @snapshot_enabled
 def create_snapshot_enabled_bucket(s3_client, bucket_name):
@@ -106,6 +170,10 @@ def read_from_snapshot(s3_client, key):
 @forked_from('source-bucket', snapshot_version='12345')
 def create_my_fork(s3_client, new_bucket):
     return s3_client.create_bucket(Bucket=new_bucket)
+
+@soft_delete_enabled(retention_days=30)
+def create_archive_bucket(s3_client, bucket_name):
+    return s3_client.create_bucket(Bucket=bucket_name)
 
 @with_rename
 def rename_file(s3_client, bucket, old_key, new_key):
@@ -138,6 +206,9 @@ from tigris_boto3_ext import (
     has_snapshot_enabled,
     get_bucket_info,
     rename_object,
+    create_soft_delete_bucket,
+    purge_deleted_object,
+    restore_deleted_object,
 )
 
 # Create snapshot-enabled bucket
@@ -166,9 +237,19 @@ obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
 objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='data/')
 metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
 
+# Create a bucket whose deleted objects stay recoverable for 30 days
+create_soft_delete_bucket(s3_client, 'my-archive', retention_days=30)
+
 # Rename an object in place (no data rewrite)
 # This moves the object to a new path in your bucket like the `mv` command on Unix.
 rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
+
+# Permanently delete a soft deleted object
+purge_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
+
+# Bring a soft-deleted object back; omit the version to restore the most recent one
+restore_deleted_object(s3_client, 'my-bucket', 'file.txt')
+restore_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
 ```
 
 ## Complete Examples
@@ -336,35 +417,6 @@ except BundleError as e:
 ```
 
 See [`examples/bundle_usage.py`](examples/bundle_usage.py) for more patterns including error handling, response metadata, and ML training batches.
-
-## How It Works
-
-This library uses boto3's event system to inject Tigris-specific headers into S3 API requests:
-
-### Request Headers (Sent to Tigris)
-
-- **`X-Tigris-Enable-Snapshot: true`** - Enables snapshot support for bucket creation
-- **`X-Tigris-Snapshot: true; name=<name>`** - Creates a snapshot
-- **`X-Tigris-Snapshot: <bucket_name>`** - Lists snapshots for a bucket
-- **`X-Tigris-Snapshot-Version: <version>`** - Reads from specific snapshot version
-- **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
-- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
-- **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
-
-### Response Headers (Returned by Tigris)
-
-The following custom headers are returned in HeadBucket responses and can be accessed via `get_bucket_info()` and `has_snapshot_enabled()`:
-
-- **`X-Tigris-Enable-Snapshot: true`** - Present when snapshots are enabled for the bucket
-- **`X-Tigris-Fork-Source-Bucket: <bucket_name>`** - Present on forked buckets, indicates the parent bucket
-- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Present on forked buckets, indicates the snapshot version
-
-The library registers event handlers on `before-sign.s3.*` events to add request headers transparently.
-
-## Requirements
-
-- Python 3.9+
-- boto3 >= 1.26.0
 
 ## Development
 

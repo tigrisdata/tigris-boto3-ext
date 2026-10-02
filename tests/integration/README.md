@@ -73,6 +73,9 @@ uv run pytest tests/integration/test_decorators_integration.py
 
 # Test Bundle API
 uv run pytest tests/integration/test_bundle.py
+
+# Test soft delete
+uv run pytest tests/integration/test_soft_delete.py
 ```
 
 ### Run Specific Test Class or Function
@@ -114,6 +117,7 @@ uv run pytest tests/integration/ -vv -s
 - **`test_context_managers_integration.py`**: Tests context manager behavior
 - **`test_decorators_integration.py`**: Tests decorator functionality
 - **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
+- **`test_soft_delete.py`**: Tests creating soft-delete buckets, the soft-delete view, purging a soft-deleted version, and restoring soft-deleted objects
 
 ## Test Bucket Naming
 
@@ -155,6 +159,10 @@ aws s3 ls --endpoint-url $AWS_ENDPOINT_URL_S3 | grep tigris-boto3-ext-test
 # Remove a specific bucket, using the full name printed by the listing above
 aws s3 rb s3://tigris-boto3-ext-test-<suffix><id> --endpoint-url $AWS_ENDPOINT_URL_S3 --force
 ```
+
+### Soft-Delete Buckets After a Run
+
+Buckets created by `test_soft_delete.py` have soft delete enabled. The tests purge their soft-deleted objects during cleanup, but deleting such a bucket only moves it to a recoverable state, so it stays in the deleted list until its retention window ends, at most eight days. Names carry a random id, so these leftovers never collide with later runs.
 
 ### Connection Errors
 
@@ -211,3 +219,7 @@ The integration tests cover:
 - ✅ Bundle error handling (skip and fail modes)
 - ✅ Bundle response metadata properties
 - ✅ Complete workflows combining multiple features
+- ✅ Creating buckets with soft delete enabled, with default and custom retention
+- ✅ Listing soft-deleted objects through the soft-delete view
+- ✅ Purging a soft-deleted version
+- ✅ Restoring a soft-deleted object, by version and most recent
