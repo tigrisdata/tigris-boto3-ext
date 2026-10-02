@@ -53,7 +53,7 @@ from .soft_delete import (
     with_soft_delete_view,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     # Bundle API
