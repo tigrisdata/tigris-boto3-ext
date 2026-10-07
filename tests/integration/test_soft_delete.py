@@ -6,8 +6,11 @@ import pytest
 from botocore.exceptions import ClientError
 
 from tigris_boto3_ext import (
-    TigrisSoftDeleteView,
+    TigrisSnapshotEnabled,
+    TigrisSoftDeleteEnabled,
     create_soft_delete_bucket,
+    list_deleted_object_versions,
+    list_deleted_objects,
     purge_deleted_object,
     restore_deleted_object,
 )
@@ -17,9 +20,7 @@ from .conftest import bucket_exists, generate_bucket_name
 
 def _soft_deleted_versions(s3_client, bucket_name):
     """Versions currently in the bucket's soft-delete view."""
-    with TigrisSoftDeleteView(s3_client):
-        response = s3_client.list_object_versions(Bucket=bucket_name)
-    return response.get("Versions", [])
+    return list_deleted_object_versions(s3_client, bucket_name).get("Versions", [])
 
 
 @pytest.fixture
@@ -131,3 +132,44 @@ class TestRestoreDeletedObject:
 
         body = s3_client.get_object(Bucket=bucket_name, Key="file.txt")["Body"].read()
         assert body == b"data"
+
+
+class TestListDeletedObjects:
+    """Test listing soft-deleted objects and their versions."""
+
+    def test_lists_only_deleted_keys_and_versions(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """Live objects stay out of the soft-delete view; deleted ones are in it."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "list-deleted-")
+        cleanup_soft_delete_buckets.append(bucket_name)
+
+        create_soft_delete_bucket(s3_client, bucket_name)
+        s3_client.put_object(Bucket=bucket_name, Key="gone.txt", Body=b"1")
+        s3_client.put_object(Bucket=bucket_name, Key="kept.txt", Body=b"2")
+        s3_client.delete_object(Bucket=bucket_name, Key="gone.txt")
+
+        objects = list_deleted_objects(s3_client, bucket_name)
+        assert [o["Key"] for o in objects.get("Contents", [])] == ["gone.txt"]
+
+        versions = list_deleted_object_versions(s3_client, bucket_name)["Versions"]
+        assert [v["Key"] for v in versions] == ["gone.txt"]
+        assert versions[0]["VersionId"]
+
+    def test_snapshot_bucket_view_excludes_live_versions(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """On a snapshot bucket only the deleted version is listed, never the live one."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "list-deleted-snap-")
+        cleanup_soft_delete_buckets.append(bucket_name)
+
+        with TigrisSnapshotEnabled(s3_client), TigrisSoftDeleteEnabled(s3_client):
+            s3_client.create_bucket(Bucket=bucket_name)
+        old = s3_client.put_object(Bucket=bucket_name, Key="b.txt", Body=b"v1")[
+            "VersionId"
+        ]
+        s3_client.put_object(Bucket=bucket_name, Key="b.txt", Body=b"v2")
+        s3_client.delete_object(Bucket=bucket_name, Key="b.txt", VersionId=old)
+
+        versions = list_deleted_object_versions(s3_client, bucket_name)["Versions"]
+        assert [(v["Key"], v["VersionId"]) for v in versions] == [("b.txt", old)]

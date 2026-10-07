@@ -223,3 +223,4 @@ The integration tests cover:
 - ✅ Listing soft-deleted objects through the soft-delete view
 - ✅ Purging a soft-deleted version
 - ✅ Restoring a soft-deleted object, by version and most recent
+- ✅ Listing soft-deleted objects and versions, with live versions excluded on snapshot buckets.

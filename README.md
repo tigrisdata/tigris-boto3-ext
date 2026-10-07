@@ -209,6 +209,8 @@ from tigris_boto3_ext import (
     create_soft_delete_bucket,
     purge_deleted_object,
     restore_deleted_object,
+    list_deleted_objects,
+    list_deleted_object_versions,
 )
 
 # Create snapshot-enabled bucket
@@ -246,6 +248,10 @@ rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
 
 # Permanently delete a soft deleted object
 purge_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
+
+# What is recoverable, and the version ids that purge and restore need
+deleted = list_deleted_objects(s3_client, 'my-bucket', Prefix='logs/')
+versions = list_deleted_object_versions(s3_client, 'my-bucket')
 
 # Bring a soft-deleted object back; omit the version to restore the most recent one
 restore_deleted_object(s3_client, 'my-bucket', 'file.txt')

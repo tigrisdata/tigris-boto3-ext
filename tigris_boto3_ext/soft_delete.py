@@ -274,6 +274,72 @@ def purge_deleted_object(
         )
 
 
+def list_deleted_objects(
+    s3_client: S3Client,
+    bucket_name: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """
+    List the soft-deleted objects in a bucket.
+
+    Only recoverable objects are returned; live objects are left out entirely.
+    Use ``list_deleted_object_versions`` when you need version ids for
+    ``purge_deleted_object`` or ``restore_deleted_object``.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket
+        **kwargs: Additional arguments to pass to ``list_objects_v2``, such as
+            ``Prefix``, ``Delimiter``, ``MaxKeys`` or ``ContinuationToken``
+
+    Returns:
+        Response from the underlying ``list_objects_v2`` operation
+
+    Usage:
+        deleted = list_deleted_objects(s3_client, 'my-bucket', Prefix='logs/')
+        for obj in deleted.get('Contents', []):
+            print(obj['Key'])
+    """
+    with TigrisSoftDeleteView(s3_client):
+        return cast(
+            "dict[str, Any]",
+            s3_client.list_objects_v2(Bucket=bucket_name, **kwargs),
+        )
+
+
+def list_deleted_object_versions(
+    s3_client: S3Client,
+    bucket_name: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """
+    List the recoverable versions of a bucket's soft-deleted objects.
+
+    Each entry carries the ``VersionId`` that ``purge_deleted_object`` and
+    ``restore_deleted_object`` take. Only soft-deleted versions are returned,
+    on snapshot-enabled buckets as well; live versions never appear.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket
+        **kwargs: Additional arguments to pass to ``list_object_versions``,
+            such as ``Prefix``, ``MaxKeys``, ``KeyMarker`` or ``VersionIdMarker``
+
+    Returns:
+        Response from the underlying ``list_object_versions`` operation
+
+    Usage:
+        deleted = list_deleted_object_versions(s3_client, 'my-bucket')
+        for version in deleted.get('Versions', []):
+            print(version['Key'], version['VersionId'])
+    """
+    with TigrisSoftDeleteView(s3_client):
+        return cast(
+            "dict[str, Any]",
+            s3_client.list_object_versions(Bucket=bucket_name, **kwargs),
+        )
+
+
 def restore_deleted_object(
     s3_client: S3Client,
     bucket_name: str,
