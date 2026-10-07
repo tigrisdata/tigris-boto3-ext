@@ -13,6 +13,8 @@ from tigris_boto3_ext import (
     TigrisSoftDeleteEnabled,
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
+    list_deleted_object_versions,
+    list_deleted_objects,
     purge_deleted_object,
     restore_deleted_object,
     soft_delete_enabled,
@@ -95,6 +97,24 @@ def example_soft_delete_view():
     print(f"Recoverable keys: {deleted_keys(s3, 'my-bucket')}")
 
 
+def example_list_deleted_objects():
+    """See what is recoverable without touching the view by hand."""
+    print("\n=== list_deleted_objects / list_deleted_object_versions helpers ===")
+
+    s3.put_object(Bucket="my-bucket", Key="logs/app.log", Body=b"...")
+    s3.delete_object(Bucket="my-bucket", Key="logs/app.log")
+
+    for obj in list_deleted_objects(s3, "my-bucket", Prefix="logs/").get(
+        "Contents", []
+    ):
+        print(f"Recoverable: {obj['Key']}")
+
+    for version in list_deleted_object_versions(s3, "my-bucket").get("Versions", []):
+        print(
+            f"{version['Key']} can be restored or purged as version {version['VersionId']}"
+        )
+
+
 def example_purge_deleted_version():
     """Permanently remove a soft-deleted version before its window expires."""
     print("\n=== purge_deleted_object helper ===")
@@ -142,5 +162,6 @@ if __name__ == "__main__":
     example_create_bucket_decorator()
     example_retention_validation()
     example_soft_delete_view()
+    example_list_deleted_objects()
     example_purge_deleted_version()
     example_restore_deleted_object()

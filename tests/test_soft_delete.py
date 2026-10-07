@@ -6,6 +6,8 @@ from tigris_boto3_ext import (
     TigrisSoftDeleteEnabled,
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
+    list_deleted_object_versions,
+    list_deleted_objects,
     purge_deleted_object,
     restore_deleted_object,
     soft_delete_enabled,
@@ -245,3 +247,35 @@ class TestPurgeDeletedObjectHelper:
 
         mock_s3_client.delete_object.assert_not_called()
         mock_s3_client.meta.events.register.assert_not_called()
+
+
+class TestListDeletedObjectsHelpers:
+    def test_list_deleted_objects_uses_the_soft_delete_view(self, mock_s3_client):
+        mock_s3_client.list_objects_v2.return_value = {"Contents": []}
+
+        result = list_deleted_objects(mock_s3_client, "my-bucket", Prefix="logs/")
+
+        assert result == {"Contents": []}
+        mock_s3_client.list_objects_v2.assert_called_once_with(
+            Bucket="my-bucket", Prefix="logs/"
+        )
+        calls = mock_s3_client.meta.events.register.call_args_list
+        assert [call[0][0] for call in calls] == SOFT_DELETE_EVENTS
+        assert mock_s3_client.meta.events.unregister.call_count == 3
+
+    def test_list_deleted_object_versions_uses_the_soft_delete_view(
+        self, mock_s3_client
+    ):
+        mock_s3_client.list_object_versions.return_value = {"Versions": []}
+
+        result = list_deleted_object_versions(
+            mock_s3_client, "my-bucket", KeyMarker="k", VersionIdMarker="v"
+        )
+
+        assert result == {"Versions": []}
+        mock_s3_client.list_object_versions.assert_called_once_with(
+            Bucket="my-bucket", KeyMarker="k", VersionIdMarker="v"
+        )
+        calls = mock_s3_client.meta.events.register.call_args_list
+        assert [call[0][0] for call in calls] == SOFT_DELETE_EVENTS
+        assert mock_s3_client.meta.events.unregister.call_count == 3
