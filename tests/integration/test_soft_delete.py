@@ -9,6 +9,7 @@ from tigris_boto3_ext import (
     TigrisSnapshotEnabled,
     TigrisSoftDeleteEnabled,
     create_soft_delete_bucket,
+    force_delete_bucket,
     list_deleted_object_versions,
     list_deleted_objects,
     purge_deleted_object,
@@ -21,6 +22,13 @@ from .conftest import bucket_exists, generate_bucket_name
 def _soft_deleted_versions(s3_client, bucket_name):
     """Versions currently in the bucket's soft-delete view."""
     return list_deleted_object_versions(s3_client, bucket_name).get("Versions", [])
+
+
+def _assert_bucket_gone(s3_client, bucket_name):
+    """Fail unless head_bucket reports the bucket as missing, not some other error."""
+    with pytest.raises(ClientError) as exc_info:
+        s3_client.head_bucket(Bucket=bucket_name)
+    assert exc_info.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
 
 
 @pytest.fixture
@@ -173,3 +181,37 @@ class TestListDeletedObjects:
 
         versions = list_deleted_object_versions(s3_client, bucket_name)["Versions"]
         assert [(v["Key"], v["VersionId"]) for v in versions] == [("b.txt", old)]
+
+
+class TestForceDeleteBucket:
+    """Test deleting non-empty buckets."""
+
+    def test_removes_a_non_empty_bucket(
+        self, s3_client, test_bucket_prefix, cleanup_buckets
+    ):
+        """A plain bucket with objects in it is deleted in one call."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "force-delete-")
+        cleanup_buckets.append(bucket_name)
+
+        s3_client.create_bucket(Bucket=bucket_name)
+        s3_client.put_object(Bucket=bucket_name, Key="file.txt", Body=b"data")
+
+        force_delete_bucket(s3_client, bucket_name)
+
+        assert not _assert_bucket_gone(s3_client, bucket_name)
+        cleanup_buckets.remove(bucket_name)
+
+    def test_removes_a_non_empty_soft_delete_bucket(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """A soft-delete bucket with objects leaves the live namespace in one call."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "force-delete-sd-")
+        cleanup_soft_delete_buckets.append(bucket_name)
+
+        create_soft_delete_bucket(s3_client, bucket_name)
+        s3_client.put_object(Bucket=bucket_name, Key="file.txt", Body=b"data")
+
+        force_delete_bucket(s3_client, bucket_name)
+
+        assert not _assert_bucket_gone(s3_client, bucket_name)
+        cleanup_soft_delete_buckets.remove(bucket_name)

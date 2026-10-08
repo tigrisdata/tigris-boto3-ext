@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+from ._internal import _guard_lock
+
 if TYPE_CHECKING:
     from mypy_boto3_s3.client import S3Client
 else:
@@ -162,18 +164,21 @@ def delete_snapshot(
         msg = "snapshot_version is required"
         raise ValueError(msg)
 
-    if has_active_injector(s3_client, "DeleteBucket"):
-        msg = "Cannot delete snapshot while another delete_snapshot call is in flight"
-        raise RuntimeError(msg)
-
     injector = create_header_injector(
         s3_client,
         "DeleteBucket",
         {"X-Tigris-Snapshot-Version": snapshot_version},
     )
 
-    try:
+    with _guard_lock:
+        if has_active_injector(s3_client, "DeleteBucket"):
+            msg = (
+                "Cannot delete snapshot while another delete_snapshot call is in flight"
+            )
+            raise RuntimeError(msg)
         injector.register()
+
+    try:
         return cast("dict[str, Any]", s3_client.delete_bucket(Bucket=bucket_name))
     finally:
         injector.unregister()
