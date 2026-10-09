@@ -1,6 +1,5 @@
 """Soft delete: recoverable deletes with a retention window."""
 
-import threading
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, cast
 
@@ -10,14 +9,13 @@ else:
     S3Client = object
 
 from ._internal import (
+    _guard_lock,
     create_header_injector,
     create_multi_operation_injector,
     has_active_injector,
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
-_restore_lock = threading.Lock()
-
 """ Context Managers """
 
 
@@ -396,7 +394,7 @@ def restore_deleted_object(
     injector = create_header_injector(s3_client, "RestoreObject", headers)
 
     # Check and register under one lock so two threads cannot both pass the check.
-    with _restore_lock:
+    with _guard_lock:
         if has_active_injector(s3_client, "RestoreObject"):
             msg = (
                 "a RestoreObject header injection is already active on this client; "
@@ -410,5 +408,56 @@ def restore_deleted_object(
             "dict[str, Any]",
             s3_client.restore_object(Bucket=bucket_name, Key=key),
         )
+    finally:
+        injector.unregister()
+
+
+def force_delete_bucket(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
+    """
+    Delete a bucket even when it still contains objects.
+
+    If the bucket has soft delete enabled, it and its objects move into the
+    recoverable soft-deleted state for the retention window. Otherwise the
+    bucket and every object in it are removed permanently and cannot be
+    recovered, not even by support.
+
+    The header is injected through the client's event system, so it applies to
+    every ``delete_bucket`` issued through this client while the call is in
+    flight. A second bucket deletion helper on the same client during that
+    window is refused.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket to delete
+
+    Returns:
+        Response from the underlying ``delete_bucket`` operation
+
+    Raises:
+        ValueError: If ``bucket_name`` is empty
+        RuntimeError: If another bucket deletion helper is in flight on this client
+
+    Usage:
+        force_delete_bucket(s3_client, 'my-bucket')
+    """
+    if not bucket_name:
+        msg = "bucket_name is required"
+        raise ValueError(msg)
+
+    injector = create_header_injector(
+        s3_client, "DeleteBucket", {"X-Tigris-Force-Delete": "true"}
+    )
+
+    with _guard_lock:
+        if has_active_injector(s3_client, "DeleteBucket"):
+            msg = (
+                "a DeleteBucket header injection is already active on this client; "
+                "wait for the other call to finish or use a separate client"
+            )
+            raise RuntimeError(msg)
+        injector.register()
+
+    try:
+        return cast("dict[str, Any]", s3_client.delete_bucket(Bucket=bucket_name))
     finally:
         injector.unregister()

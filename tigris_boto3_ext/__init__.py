@@ -47,6 +47,7 @@ from .soft_delete import (
     TigrisSoftDeleteEnabled,
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
+    force_delete_bucket,
     list_deleted_object_versions,
     list_deleted_objects,
     purge_deleted_object,
@@ -78,6 +79,7 @@ __all__ = [
     "list_deleted_object_versions",
     "list_deleted_objects",
     "restore_deleted_object",
+    "force_delete_bucket",
     # Context Managers
     "TigrisSnapshotEnabled",
     "TigrisSnapshot",

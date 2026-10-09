@@ -6,6 +6,8 @@ from tigris_boto3_ext import (
     TigrisSoftDeleteEnabled,
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
+    delete_snapshot,
+    force_delete_bucket,
     list_deleted_object_versions,
     list_deleted_objects,
     purge_deleted_object,
@@ -279,3 +281,62 @@ class TestListDeletedObjectsHelpers:
         calls = mock_s3_client.meta.events.register.call_args_list
         assert [call[0][0] for call in calls] == SOFT_DELETE_EVENTS
         assert mock_s3_client.meta.events.unregister.call_count == 3
+
+
+DELETE_BUCKET_EVENT = "before-sign.s3.DeleteBucket"
+
+
+class TestForceDeleteBucketHelper:
+    def test_injects_force_header_on_delete_bucket(
+        self, mock_s3_client, mock_request_class
+    ):
+        mock_s3_client.delete_bucket.return_value = {"ResponseMetadata": {}}
+
+        result = force_delete_bucket(mock_s3_client, "my-bucket")
+
+        assert result == {"ResponseMetadata": {}}
+        mock_s3_client.delete_bucket.assert_called_once_with(Bucket="my-bucket")
+        event_name, handler = mock_s3_client.meta.events.register.call_args[0]
+        assert event_name == DELETE_BUCKET_EVENT
+        request = mock_request_class()
+        handler(request)
+        assert request.headers == {"X-Tigris-Force-Delete": "true"}
+        mock_s3_client.meta.events.unregister.assert_called_once()
+
+    def test_unregisters_when_delete_bucket_raises(self, mock_s3_client):
+        mock_s3_client.delete_bucket.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            force_delete_bucket(mock_s3_client, "my-bucket")
+
+        mock_s3_client.meta.events.unregister.assert_called_once()
+
+    def test_refuses_to_overlap_with_another_bucket_deletion(self, mock_s3_client):
+        other = create_header_injector(
+            mock_s3_client, "DeleteBucket", {"X-Tigris-Snapshot-Version": "1"}
+        )
+        other.register()
+        try:
+            with pytest.raises(RuntimeError, match="already active"):
+                force_delete_bucket(mock_s3_client, "my-bucket")
+            mock_s3_client.delete_bucket.assert_not_called()
+        finally:
+            other.unregister()
+
+    def test_rejects_empty_bucket_name(self, mock_s3_client):
+        with pytest.raises(ValueError, match="bucket_name is required"):
+            force_delete_bucket(mock_s3_client, "")
+
+        mock_s3_client.delete_bucket.assert_not_called()
+
+    def test_delete_snapshot_refuses_while_force_delete_is_active(self, mock_s3_client):
+        other = create_header_injector(
+            mock_s3_client, "DeleteBucket", {"X-Tigris-Force-Delete": "true"}
+        )
+        other.register()
+        try:
+            with pytest.raises(RuntimeError, match="in flight"):
+                delete_snapshot(mock_s3_client, "my-bucket", "123")
+            mock_s3_client.delete_bucket.assert_not_called()
+        finally:
+            other.unregister()

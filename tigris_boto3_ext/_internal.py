@@ -1,5 +1,6 @@
 """Internal utilities for event handler management."""
 
+import threading
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -12,6 +13,8 @@ else:
 _handler_registry: dict[
     tuple[int, str], tuple[Callable, dict[int, dict[str, str]]]
 ] = {}
+
+_guard_lock = threading.Lock()
 
 
 class HeaderInjector:
