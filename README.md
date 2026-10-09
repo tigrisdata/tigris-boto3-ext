@@ -6,19 +6,7 @@
 [![PyPI version](https://badge.fury.io/py/tigris-boto3-ext.svg)](https://badge.fury.io/py/tigris-boto3-ext)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Extend boto3 with Tigris-specific features like snapshots and bucket forking, while maintaining full boto3 compatibility.
-
-## Features
-
-- **Bundle API**: Fetch thousands of objects in a single request as a streaming tar archive — designed for ML training workloads
-- **Snapshot Support**: Create, list, and read from bucket snapshots
-- **Bucket Forking**: Create forked buckets from existing buckets or snapshots
-- **Object Rename**: Rename (move) objects in place without rewriting their data
-- **Soft Delete**: Create buckets whose deleted objects stay recoverable for a 7 to 90 day retention window
-- **Multiple Usage Patterns**: Context managers, decorators, helper functions, or wrapper client
-- **Zero Configuration**: Works with existing boto3 code
-- **Type Safe**: Full type hints for IDE support
-- **Pythonic API**: Uses familiar Python patterns
+Extend boto3 with Tigris-specific features — snapshots, forks, soft delete, in-place rename and the Bundle API — while keeping full boto3 compatibility. You keep your `boto3.client("s3")`; this library adds the Tigris headers to the right requests and otherwise stays out of the way.
 
 ## Installation
 
@@ -26,415 +14,107 @@ Extend boto3 with Tigris-specific features like snapshots and bucket forking, wh
 pip install tigris-boto3-ext
 ```
 
-## How It Works
+Requires Python 3.9+ and boto3 >= 1.26.0.
 
-This library uses boto3's event system to inject Tigris-specific headers into S3 API requests:
-
-### Request Headers (Sent to Tigris)
-
-- **`X-Tigris-Enable-Snapshot: true`** - Enables snapshot support for bucket creation
-- **`X-Tigris-Snapshot: true; name=<name>`** - Creates a snapshot
-- **`X-Tigris-Snapshot: <bucket_name>`** - Lists snapshots for a bucket
-- **`X-Tigris-Snapshot-Version: <version>`** - Reads from specific snapshot version
-- **`X-Tigris-Fork-Source-Bucket: <bucket>`** - Specifies fork source
-- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Forks from specific snapshot
-- **`X-Tigris-Soft-Delete: true`** or **`X-Tigris-Soft-Delete: <days>`** - Enables soft delete for bucket creation
-- **`X-Tigris-Rename: true`** - Turns a `CopyObject` request into an in-place rename
-- **`X-Tigris-Soft-Delete: true`** on `DeleteObject`, `ListObjectVersions` and `ListObjectsV2` - Switches the operation to the bucket's soft-deleted objects: purge a version or list the recoverable ones
-- **`X-Tigris-Restore-Type: soft-delete`** with optional **`X-Tigris-Restore-Version: <version>`** on `RestoreObject` - Restores a soft-deleted object instead of thawing an archived one
-- **`X-Tigris-Force-Delete: true`** on `DeleteBucket` - Deletes a non-empty bucket; permanent unless the bucket has soft delete enabled
-
-### Response Headers (Returned by Tigris)
-
-The following custom headers are returned in HeadBucket responses and can be accessed via `get_bucket_info()` and `has_snapshot_enabled()`:
-
-- **`X-Tigris-Enable-Snapshot: true`** - Present when snapshots are enabled for the bucket
-- **`X-Tigris-Fork-Source-Bucket: <bucket_name>`** - Present on forked buckets, indicates the parent bucket
-- **`X-Tigris-Fork-Source-Bucket-Snapshot: <version>`** - Present on forked buckets, indicates the snapshot version
-
-The library registers event handlers on `before-sign.s3.*` events to add request headers transparently.
-
-### Thread Safety
-
-Header injection is registered on the boto3 client, not on a single request. While a context manager, decorator or helper from this library is active, every matching operation on that client carries the injected headers, including operations issued from other threads. Use a separate client per thread when combining these features with concurrent work.
-
-## Requirements
-
-- Python 3.9+
-- boto3 >= 1.26.0
-
-
-## Usage Patterns
-
-### 1. Context Managers (Recommended)
-
-#### Enable Snapshots for Bucket Creation
+## Quick start
 
 ```python
-from tigris_boto3_ext import TigrisSnapshotEnabled
+import boto3
+from tigris_boto3_ext import (
+    create_snapshot,
+    create_snapshot_bucket,
+    get_object_from_snapshot,
+    get_snapshot_version,
+)
 
-with TigrisSnapshotEnabled(s3_client):
-    s3_client.create_bucket(Bucket='my-snapshot-bucket')
+s3 = boto3.client("s3", endpoint_url="https://t3.storage.dev")
+
+create_snapshot_bucket(s3, "my-bucket")
+s3.put_object(Bucket="my-bucket", Key="config.json", Body=b'{"version": 1}')
+version = get_snapshot_version(create_snapshot(s3, "my-bucket", snapshot_name="v1"))
+
+s3.put_object(Bucket="my-bucket", Key="config.json", Body=b'{"version": 2}')
+old = get_object_from_snapshot(s3, "my-bucket", "config.json", version)["Body"].read()
+# b'{"version": 1}'
 ```
 
-#### Work with Snapshots
+Credentials come from the usual boto3 sources: environment variables, a profile, or keyword arguments to `boto3.client`.
+
+## Features
+
+Everything is imported from `tigris_boto3_ext`. Each page lists the feature's helpers, context manager and decorator, the headers it sends, and its caveats.
+
+| Feature | What it does | Start with | Docs | Example |
+|---|---|---|---|---|
+| Snapshots | Point-in-time copies of a bucket: create, list, read from, delete | `create_snapshot_bucket`, `create_snapshot`, `get_object_from_snapshot` | [docs/snapshots.md](docs/snapshots.md) | [snapshots_usage.py](examples/snapshots_usage.py) |
+| Forks | A new bucket from an existing bucket or one of its snapshots, zero-copy | `create_fork` | [docs/forks.md](docs/forks.md) | [forks_usage.py](examples/forks_usage.py) |
+| Bucket info | Snapshot and fork metadata from `HeadBucket` | `get_bucket_info`, `has_snapshot_enabled` | [docs/bucket-info.md](docs/bucket-info.md) | [bucket_info_usage.py](examples/bucket_info_usage.py) |
+| Object rename | Move an object to a new key without rewriting its data | `rename_object` | [docs/rename.md](docs/rename.md) | [rename_usage.py](examples/rename_usage.py) |
+| Soft delete | Deleted objects stay recoverable for 7–90 days: list, restore, purge | `create_soft_delete_bucket`, `restore_deleted_object` | [docs/soft-delete.md](docs/soft-delete.md) | [soft_delete_usage.py](examples/soft_delete_usage.py) |
+| Force delete | Delete a bucket that still contains objects | `force_delete_bucket` | [docs/force-delete.md](docs/force-delete.md) | [force_delete_usage.py](examples/force_delete_usage.py) |
+| Bundle API | Thousands of objects in one request, as a streaming tar archive | `bundle_objects` | [docs/bundle.md](docs/bundle.md) | [bundle_usage.py](examples/bundle_usage.py) |
+
+## Usage patterns
+
+Snapshots, forks, rename and soft delete each come in three shapes. They do the same thing; pick by how much code the Tigris behaviour should cover. Bucket info, force delete and the Bundle API are single calls and come as helpers only.
+
+### Helper functions
+
+One call, one request. The header is registered on the client for the duration of that call and removed before it returns, so sequential code never sees it; concurrent code on the same client can, see [Thread safety](#thread-safety). The default choice.
+
+```python
+from tigris_boto3_ext import rename_object
+
+rename_object(s3, "my-bucket", "old-name.txt", "new-name.txt")
+```
+
+### Context managers
+
+Several plain boto3 calls under one Tigris setting. Reach for this when you have a batch to do and the helpers would mean repeating yourself.
 
 ```python
 from tigris_boto3_ext import TigrisSnapshot
 
-# List snapshots for a bucket
-with TigrisSnapshot(s3_client, 'my-bucket'):
-    snapshots = s3_client.list_buckets()
-
-# Read objects from a specific snapshot
-with TigrisSnapshot(s3_client, 'my-bucket', snapshot_version='12345'):
-    obj = s3_client.get_object(Bucket='my-bucket', Key='file.txt')
-    objects = s3_client.list_objects_v2(Bucket='my-bucket')
+with TigrisSnapshot(s3, "my-bucket", snapshot_version=version):
+    config = s3.get_object(Bucket="my-bucket", Key="config.json")
+    listing = s3.list_objects_v2(Bucket="my-bucket", Prefix="data/")
 ```
 
-#### Create Forked Buckets
+### Decorators
+
+Wrap an existing function so its boto3 calls run under the setting, without changing its body. The wrapped function must take the client as its first argument.
 
 ```python
-from tigris_boto3_ext import TigrisFork
+from tigris_boto3_ext import forked_from
 
-# Fork from current state
-with TigrisFork(s3_client, 'source-bucket'):
-    s3_client.create_bucket(Bucket='forked-bucket')
+@forked_from("production-data")
+def create_dev_environment(s3_client, name):
+    return s3_client.create_bucket(Bucket=name)
 
-# Fork from specific snapshot
-with TigrisFork(s3_client, 'source-bucket', snapshot_version='12345'):
-    s3_client.create_bucket(Bucket='forked-from-snapshot')
+create_dev_environment(s3, "dev-environment")
 ```
 
-#### Enable Soft Delete for Bucket Creation
+Decorators without options (`@snapshot_enabled`, `@with_rename`, `@with_soft_delete_view`) are applied bare. The others are called: `@with_snapshot("bucket")` and `@forked_from("source-bucket")` need their bucket, and `@soft_delete_enabled(retention_days=30)` takes an optional window, so `@soft_delete_enabled()` with empty parentheses is also valid.
 
-```python
-from tigris_boto3_ext import TigrisSoftDeleteEnabled
+## How it works
 
-# Default 7-day retention window
-with TigrisSoftDeleteEnabled(s3_client):
-    s3_client.create_bucket(Bucket='my-bucket')
+boto3 lets you hook into a request just before it is signed. This library registers handlers on the client's `before-sign.s3.<Operation>` events and adds the `X-Tigris-*` header the feature needs, so the header is covered by the SigV4 signature and the request is otherwise a normal S3 call. When the helper returns, or the context manager or decorated function exits, the handler is removed. Each feature page lists its headers.
 
-# Custom window, 7 to 90 days
-with TigrisSoftDeleteEnabled(s3_client, retention_days=30):
-    s3_client.create_bucket(Bucket='my-archive')
-```
+Contexts nest. When two active contexts set the same header on the same operation, the inner one wins.
 
-#### Work with Soft-Deleted Objects
+The Bundle API is the exception: `/{bucket}?bundle` is not an S3 operation, so `bundle_objects` signs and sends the request itself, using the client's credentials, region and endpoint.
 
-```python
-from tigris_boto3_ext import TigrisSoftDeleteView
+### Thread safety
 
-with TigrisSoftDeleteView(s3_client):
-    # list_object_versions now returns soft-deleted objects, not live ones
-    deleted = s3_client.list_object_versions(Bucket='my-bucket')
-    # delete_object with a VersionId purges that soft-deleted version for good
-    s3_client.delete_object(Bucket='my-bucket', Key='file.txt', VersionId='1787441627070249004')
-```
+Header injection is registered on the boto3 client, not on a single request. While a context manager, decorator or helper from this library is active, every matching operation on that client carries the injected headers, including operations issued from other threads. Use a separate client per thread when combining these features with concurrent work.
 
-#### Rename Objects
-
-Tigris implements rename as a `copy_object` request plus the `X-Tigris-Rename: true`
-header — no data is rewritten, only the key changes. Keep the context tight so
-unrelated `copy_object` calls are not turned into renames.
-
-```python
-from tigris_boto3_ext import TigrisRename
-
-with TigrisRename(s3_client):
-    s3_client.copy_object(
-        Bucket='my-bucket',
-        CopySource='my-bucket/old-name.txt',
-        Key='new-name.txt',
-    )
-```
-
-### 2. Decorators
-
-```python
-from tigris_boto3_ext import snapshot_enabled, with_snapshot, forked_from, with_rename, with_soft_delete_view
-
-@snapshot_enabled
-def create_snapshot_enabled_bucket(s3_client, bucket_name):
-    return s3_client.create_bucket(Bucket=bucket_name)
-
-# List available snapshots
-@with_snapshot('my-bucket')
-def list_snapshots(s3_client):
-    return s3_client.list_buckets()
-
-# Read from specific snapshot
-@with_snapshot('my-bucket', snapshot_version='12345')
-def read_from_snapshot(s3_client, key):
-    return s3_client.get_object(Bucket='my-bucket', Key=key)
-
-@forked_from('source-bucket', snapshot_version='12345')
-def create_my_fork(s3_client, new_bucket):
-    return s3_client.create_bucket(Bucket=new_bucket)
-
-@soft_delete_enabled(retention_days=30)
-def create_archive_bucket(s3_client, bucket_name):
-    return s3_client.create_bucket(Bucket=bucket_name)
-
-@with_rename
-def rename_file(s3_client, bucket, old_key, new_key):
-    return s3_client.copy_object(
-        Bucket=bucket,
-        CopySource=f'{bucket}/{old_key}',
-        Key=new_key,
-    )
-
-# Use the decorated functions
-create_snapshot_enabled_bucket(s3_client, 'my-bucket')
-snapshots = list_snapshots(s3_client)
-obj = read_from_snapshot(s3_client, 'file.txt')
-create_my_fork(s3_client, 'my-fork')
-rename_file(s3_client, 'my-bucket', 'old.txt', 'new.txt')
-```
-
-### 3. Helper Functions
-
-```python
-from tigris_boto3_ext import (
-    create_snapshot_bucket,
-    create_snapshot,
-    list_snapshots,
-    create_fork,
-    get_object_from_snapshot,
-    get_snapshot_version,
-    list_objects_from_snapshot,
-    head_object_from_snapshot,
-    has_snapshot_enabled,
-    get_bucket_info,
-    rename_object,
-    create_soft_delete_bucket,
-    purge_deleted_object,
-    restore_deleted_object,
-    list_deleted_objects,
-    list_deleted_object_versions,
-    force_delete_bucket,
-)
-
-# Create snapshot-enabled bucket
-create_snapshot_bucket(s3_client, 'my-bucket')
-
-# Check if bucket has snapshots enabled
-if has_snapshot_enabled(s3_client, 'my-bucket'):
-    print("Snapshots are enabled!")
-
-# Get comprehensive bucket information
-info = get_bucket_info(s3_client, 'my-bucket')
-print(f"Snapshot enabled: {info['snapshot_enabled']}")
-
-# Create snapshots
-result = create_snapshot(s3_client, 'my-bucket', snapshot_name='backup-1')
-version = get_snapshot_version(result)
-
-# List snapshots
-snapshots = list_snapshots(s3_client, 'my-bucket')
-
-# Create forks
-create_fork(s3_client, 'new-bucket', 'source-bucket', snapshot_version=version)
-
-# Access snapshot data
-obj = get_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', version)
-objects = list_objects_from_snapshot(s3_client, 'my-bucket', '12345', Prefix='data/')
-metadata = head_object_from_snapshot(s3_client, 'my-bucket', 'file.txt', '12345')
-
-# Create a bucket whose deleted objects stay recoverable for 30 days
-create_soft_delete_bucket(s3_client, 'my-archive', retention_days=30)
-
-# Rename an object in place (no data rewrite)
-# This moves the object to a new path in your bucket like the `mv` command on Unix.
-rename_object(s3_client, 'my-bucket', 'old-name.txt', 'new-name.txt')
-
-# Permanently delete a soft deleted object
-purge_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
-
-# What is recoverable, and the version ids that purge and restore need
-deleted = list_deleted_objects(s3_client, 'my-bucket', Prefix='logs/')
-versions = list_deleted_object_versions(s3_client, 'my-bucket')
-
-# Bring a soft-deleted object back; omit the version to restore the most recent one
-restore_deleted_object(s3_client, 'my-bucket', 'file.txt')
-restore_deleted_object(s3_client, 'my-bucket', 'file.txt', '1787441627070249004')
-
-# Delete a bucket that still has objects. Recoverable only if the bucket has soft delete enabled.
-force_delete_bucket(s3_client, 'my-bucket')
-```
-
-## Complete Examples
-
-### Example 1: Backup and Restore Workflow
-
-```python
-import boto3
-from tigris_boto3_ext import (
-    create_snapshot_bucket,
-    create_snapshot,
-    list_snapshots,
-    create_fork,
-    get_snapshot_version,
-)
-
-s3 = boto3.client('s3')
-
-# Create a snapshot-enabled bucket
-create_snapshot_bucket(s3, 'production-data')
-
-# Add some data
-s3.put_object(Bucket='production-data', Key='important.txt', Body=b'critical data')
-
-# Create a snapshot
-snapshot_result = create_snapshot(s3, 'production-data', snapshot_name='daily-backup')
-snapshot_version = get_snapshot_version(snapshot_result)
-
-# List all snapshots
-snapshots = list_snapshots(s3, 'production-data')
-for bucket in snapshots.get('Buckets', []):
-    print(f"Snapshot: {bucket['Name']}")
-
-# Restore from snapshot by creating a fork
-create_fork(s3, 'restored-data', 'production-data', snapshot_version=snapshot_version)
-```
-
-### Example 2: Testing with Snapshot Isolation
-
-```python
-import boto3
-from tigris_boto3_ext import create_fork, create_snapshot, get_snapshot_version
-
-s3 = boto3.client('s3')
-
-# Create a snapshot of production data
-snapshot_result = create_snapshot(s3, 'production-data', snapshot_name='test-snapshot')
-snapshot_version = get_snapshot_version(snapshot_result)
-
-# Fork for testing (isolated copy)
-create_fork(s3, 'test-data', 'production-data', snapshot_version=snapshot_version)
-
-# Run tests against test-db without affecting production
-s3.put_object(Bucket='test-data', Key='test-data.txt', Body=b'test data')
-
-# Clean up test bucket when done
-s3.delete_bucket(Bucket='test-data')
-```
-
-### Example 3: Time-Travel Queries
-
-```python
-import boto3
-from tigris_boto3_ext import get_object_from_snapshot, list_objects_from_snapshot
-
-s3 = boto3.client('s3')
-
-# Get object as it was at a specific snapshot
-historical_obj = get_object_from_snapshot(
-    s3,
-    'my-bucket',
-    'config.json',
-    snapshot_version='12345'
-)
-old_config = historical_obj['Body'].read()
-
-# List all objects in historical snapshot
-historical_objects = list_objects_from_snapshot(
-    s3,
-    'my-bucket',
-    snapshot_version='12345',
-    Prefix='logs/2024/'
-)
-
-for obj in historical_objects.get('Contents', []):
-    print(f"Historical object: {obj['Key']}")
-```
-
-### Example 4: Retrieving Bucket Snapshot and Fork Information
-
-```python
-import boto3
-from tigris_boto3_ext import (
-    create_snapshot_bucket,
-    create_snapshot,
-    create_fork,
-    get_snapshot_version,
-    has_snapshot_enabled,
-    get_bucket_info,
-)
-
-s3 = boto3.client('s3')
-
-# Check if a bucket has snapshots enabled
-bucket_name = 'my-bucket'
-
-create_snapshot_bucket(s3, bucket_name)
-
-if has_snapshot_enabled(s3, bucket_name):
-    print(f"✓ Snapshots are enabled for {bucket_name}")
-else:
-    print(f"✗ Snapshots are not enabled for {bucket_name}")
-
-# Get comprehensive bucket information
-info = get_bucket_info(s3, bucket_name)
-print(f"Snapshot enabled: {info['snapshot_enabled']}")
-
-# Example: Check fork lineage
-source_bucket = 'production-data'
-create_snapshot_bucket(s3, source_bucket)
-
-# Create a snapshot
-snapshot_result = create_snapshot(s3, source_bucket, snapshot_name='v1')
-snapshot_version = get_snapshot_version(snapshot_result)
-
-# Create a fork
-forked_bucket = 'test-data'
-create_fork(s3, forked_bucket, source_bucket, snapshot_version=snapshot_version)
-
-# Inspect the fork
-fork_info = get_bucket_info(s3, forked_bucket)
-print(f"Forked from: {fork_info['fork_source_bucket']}")
-print(f"Snapshot version: {fork_info['fork_source_snapshot']}")
-```
-
-### Example 5: Bundle API — Fetch Multiple Objects in One Request
-
-```python
-import tarfile
-import boto3
-from tigris_boto3_ext import bundle_objects, BundleError, BUNDLE_ON_ERROR_FAIL
-
-s3 = boto3.client('s3')
-
-# Fetch a batch of training images as a streaming tar archive
-keys = [f"dataset/train/img_{i:05d}.jpg" for i in range(1000)]
-response = bundle_objects(s3, 'my-dataset-bucket', keys)
-
-with tarfile.open(fileobj=response, mode="r|") as tar:
-    for member in tar:
-        if member.name == "__bundle_errors.json":
-            continue  # skip the error manifest
-        f = tar.extractfile(member)
-        if f is not None:
-            image_bytes = f.read()
-            # feed to training pipeline
-
-# Use fail mode for inference where every object must be present
-try:
-    response = bundle_objects(
-        s3, 'my-bucket', keys, on_error=BUNDLE_ON_ERROR_FAIL
-    )
-except BundleError as e:
-    print(f"Bundle failed (HTTP {e.status_code}): {e.body}")
-```
-
-See [`examples/bundle_usage.py`](examples/bundle_usage.py) for more patterns including error handling, response metadata, and ML training batches.
+Helpers whose header changes what a destructive request does go one step further: they raise `RuntimeError` instead of running while another header injector is active for the same operation on the same client, rather than risk the wrong header on the wrong request. `delete_snapshot` and `force_delete_bucket` both send `DeleteBucket`, so they exclude each other; `restore_deleted_object` guards `RestoreObject`. Unrelated operations are not blocked.
 
 ## Development
 
 ### Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/tigrisdata/tigris-boto3-ext.git
 cd tigris-boto3-ext
 
@@ -445,23 +125,22 @@ uv sync --all-extras
 pip install -e ".[dev]"
 ```
 
-### Running Tests
-
-#### Integration Tests
-
-Integration tests run against a real Tigris S3 service. See [`tests/integration/README.md`](tests/integration/README.md) for detailed setup instructions.
+### Running tests
 
 ```bash
-# Set up environment variables
+# Unit tests: mocked clients, no network
+uv run pytest tests/ --ignore=tests/integration -v
+
+# Integration tests run against Tigris and are skipped when these are not set
 export AWS_ENDPOINT_URL_S3="https://t3.storage.dev"
 export AWS_ACCESS_KEY_ID="your-access-key"
 export AWS_SECRET_ACCESS_KEY="your-secret-key"
-
-# Run integration tests
 uv run pytest tests/integration/ -v
 ```
 
-### Code Quality
+See [`tests/integration/README.md`](tests/integration/README.md) for the integration test setup in detail.
+
+### Code quality
 
 ```bash
 # Type checking
@@ -487,6 +166,8 @@ Apache-2.0
 ## Contributing
 
 Contributions welcome! Please open an issue or PR on GitHub.
+
+A feature ships as a set: its module under `tigris_boto3_ext/buckets/` or `tigris_boto3_ext/objects/`, a unit test, an integration test, a page under `docs/`, an example under `examples/`, and a row in the table above. [`CLAUDE.md`](CLAUDE.md) describes the module layout.
 
 ## Support
 

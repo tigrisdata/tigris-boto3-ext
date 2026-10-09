@@ -13,7 +13,6 @@ from tigris_boto3_ext import (
     TigrisSoftDeleteEnabled,
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
-    force_delete_bucket,
     list_deleted_object_versions,
     list_deleted_objects,
     purge_deleted_object,
@@ -154,15 +153,6 @@ def example_restore_deleted_object():
         print(f"Restored {version['Key']} (version {version['VersionId']})")
 
 
-def example_force_delete_bucket():
-    """Delete a bucket without emptying it first."""
-    print("\n=== force_delete_bucket helper ===")
-
-    # my-bucket was created with soft delete, so this is recoverable for 7 days
-    force_delete_bucket(s3, "my-bucket")
-    print("Deleted my-bucket; it stays recoverable for its retention window")
-
-
 if __name__ == "__main__":
     print("Tigris boto3 Extensions - Soft Delete Usage Examples")
     print("=" * 50)
@@ -175,4 +165,3 @@ if __name__ == "__main__":
     example_list_deleted_objects()
     example_purge_deleted_version()
     example_restore_deleted_object()
-    example_force_delete_bucket()

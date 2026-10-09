@@ -39,8 +39,10 @@ AWS_SECRET_ACCESS_KEY=your-secret-access-key
 Then load it before running tests:
 
 ```bash
-export $(cat .env | xargs)
+set -a; source .env; set +a
 ```
+
+(`set -a` exports every variable the sourced file assigns. This form copes with values containing spaces or quotes, which `export $(cat .env | xargs)` does not.) The file is gitignored.
 
 ## Running Integration Tests
 
@@ -52,30 +54,19 @@ uv run pytest tests/integration/
 
 ### Run Specific Test File
 
+One file per feature, matching the pages under `docs/`:
+
 ```bash
-# Test snapshots
-uv run pytest tests/integration/test_snapshots.py
+uv run pytest tests/integration/test_snapshots.py      # snapshots, including deletion
+uv run pytest tests/integration/test_forks.py          # forks
+uv run pytest tests/integration/test_bucket_info.py    # bucket info
+uv run pytest tests/integration/test_rename.py         # object rename
+uv run pytest tests/integration/test_soft_delete.py    # soft delete and force delete
+uv run pytest tests/integration/test_bundle.py         # Bundle API
 
-# Test forks
-uv run pytest tests/integration/test_forks.py
-
-# Test bucket info
-uv run pytest tests/integration/test_bucket_info.py
-
-# Test object rename
-uv run pytest tests/integration/test_rename.py
-
-# Test context managers
+# Cross-feature: context manager nesting and decorator combinations
 uv run pytest tests/integration/test_context_managers_integration.py
-
-# Test decorators
 uv run pytest tests/integration/test_decorators_integration.py
-
-# Test Bundle API
-uv run pytest tests/integration/test_bundle.py
-
-# Test soft delete
-uv run pytest tests/integration/test_soft_delete.py
 ```
 
 ### Run Specific Test Class or Function
@@ -109,15 +100,16 @@ uv run pytest tests/integration/ -vv -s
   - `test_bucket_prefix`: Prefix for test bucket names
   - `cleanup_buckets`: Automatically cleans up test buckets after tests
 
-- **`test_snapshots.py`**: Tests snapshot creation, listing, and data access
+- **`test_snapshots.py`**: Tests snapshot creation, listing, deletion, and data access
 - **`test_forks.py`**: Tests bucket forking and data isolation
 - **`test_bucket_info.py`**: Tests `has_snapshot_enabled` and `get_bucket_info` on snapshot-enabled, regular, forked, and fork-parent buckets
 - **`test_rename.py`**: Tests in-place rename via the helper, context manager, and decorator, including nested and special-character keys
-- **`test_snapshots.py`**: Tests snapshot creation, listing, deletion, and data access
-- **`test_context_managers_integration.py`**: Tests context manager behavior
-- **`test_decorators_integration.py`**: Tests decorator functionality
+- **`test_soft_delete.py`**: Tests creating soft-delete buckets, the soft-delete view, listing, purging and restoring soft-deleted objects, and force-deleting non-empty buckets
 - **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
-- **`test_soft_delete.py`**: Tests creating soft-delete buckets, the soft-delete view, purging a soft-deleted version, and restoring soft-deleted objects
+- **`test_context_managers_integration.py`**: Tests context manager behavior across features, including nesting
+- **`test_decorators_integration.py`**: Tests decorator functionality across features, including combinations
+
+Unit tests live one level up in `tests/test_<resource>_<feature>.py` (for example `tests/test_bucket_snapshots.py`, `tests/test_object_delete.py`), mirroring the package layout; they mock the client and need no credentials.
 
 ## Test Bucket Naming
 
@@ -199,29 +191,43 @@ Add secrets to your repository and use them in your workflow:
 
 ## Test Coverage
 
-The integration tests cover:
+The integration tests cover, by feature:
 
+**Snapshots**
 - ✅ Creating buckets with snapshot enabled
 - ✅ Creating named snapshots
 - ✅ Listing snapshots
 - ✅ Accessing data from snapshots
+- ✅ Deleting a snapshot without affecting other snapshots or the bucket
+- ✅ Rejecting deletion of an unknown snapshot version
+
+**Forks**
 - ✅ Creating forks from existing buckets
 - ✅ Forking from specific snapshot versions
 - ✅ Data isolation between forks and sources
-- ✅ Context manager usage and nesting
-- ✅ Decorator functionality
-- ✅ Bucket info: snapshot-enabled flag and fork source metadata
+
+**Bucket info**
+- ✅ Snapshot-enabled flag and fork source metadata
+
+**Object rename**
 - ✅ In-place object rename via helper, context manager, and decorator
-- ✅ Deleting a snapshot without affecting other snapshots or the bucket
-- ✅ Rejecting deletion of an unknown snapshot version
-- ✅ Bundle API single and multi-object fetch
-- ✅ Bundle compression (gzip, zstd)
-- ✅ Bundle error handling (skip and fail modes)
-- ✅ Bundle response metadata properties
-- ✅ Complete workflows combining multiple features
+
+**Soft delete**
 - ✅ Creating buckets with soft delete enabled, with default and custom retention
-- ✅ Listing soft-deleted objects through the soft-delete view
+- ✅ Listing soft-deleted objects and versions through the soft-delete view, with live versions excluded on snapshot buckets
 - ✅ Purging a soft-deleted version
 - ✅ Restoring a soft-deleted object, by version and most recent
-- ✅ Listing soft-deleted objects and versions, with live versions excluded on snapshot buckets.
+
+**Force delete**
 - ✅ Force-deleting non-empty buckets, with and without soft delete
+
+**Bundle API**
+- ✅ Single and multi-object fetch
+- ✅ Compression (gzip, zstd)
+- ✅ Error handling (skip and fail modes)
+- ✅ Response metadata properties
+
+**Across features**
+- ✅ Context manager usage and nesting
+- ✅ Decorator functionality and combinations
+- ✅ Complete workflows combining multiple features

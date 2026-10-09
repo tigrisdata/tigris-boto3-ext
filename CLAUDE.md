@@ -56,7 +56,18 @@ tigris_boto3_ext/
 
 Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Shared infrastructure stays in `_internal.py`.
 
-A feature's footprint is: the module, a unit test (`tests/test_<resource>_<feature>.py`), an integration test, a bullet in the README "Features" list, a header entry in "How It Works", a usage snippet, and an example under `examples/`.
+### Feature footprint
+
+Code is grouped by resource; docs and examples are grouped by feature, because users arrive with a task, not a resource (soft delete spans `buckets/delete.py` and `objects/delete.py` but has one docs page). A feature ships as a set, and a PR that adds or extends a feature touches every piece:
+
+1. the module under `buckets/` or `objects/`, re-exported from `__init__.py` and listed in `__all__`
+2. a unit test, `tests/test_<resource>_<feature>.py`
+3. an integration test, `tests/integration/test_<feature>.py`
+4. a docs page, `docs/<feature>.md`: what the feature is with a link to the Tigris docs, the helpers, context manager and decorator with short examples, a Headers table, caveats
+5. a runnable example, `examples/<feature>_usage.py`, self-contained (creates what it uses)
+6. one row in the README "Features" table
+
+The README is the front door only: install, quick start, the feature table, the three usage patterns explained once, how it works, development. Feature details go in the feature's page, not the README.
 
 ### Header injection via boto3 events
 
