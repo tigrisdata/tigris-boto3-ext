@@ -51,7 +51,9 @@ class TestWithRenameDecorator:
         @with_rename
         def do_rename(client, src, dst):
             client.copy_object(
-                Bucket="b", CopySource=f"b/{src}", Key=dst,
+                Bucket="b",
+                CopySource=f"b/{src}",
+                Key=dst,
             )
             return "done"
 
@@ -59,7 +61,9 @@ class TestWithRenameDecorator:
 
         assert result == "done"
         mock_s3_client.copy_object.assert_called_once_with(
-            Bucket="b", CopySource="b/old.txt", Key="new.txt",
+            Bucket="b",
+            CopySource="b/old.txt",
+            Key="new.txt",
         )
         # Handler must be torn down once the function returns.
         mock_s3_client.meta.events.unregister.assert_called_once()

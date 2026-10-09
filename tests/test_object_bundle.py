@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tigris_boto3_ext.bundle import (
+from tigris_boto3_ext.objects.bundle import (
     BUNDLE_COMPRESSION_GZIP,
     BUNDLE_ON_ERROR_FAIL,
     MAX_BUNDLE_KEYS,
@@ -42,15 +42,11 @@ class TestBundleObjectsValidation:
 
     def test_invalid_compression_raises(self, mock_s3_client):
         with pytest.raises(ValueError, match="invalid compression"):
-            bundle_objects(
-                mock_s3_client, "bucket", ["key"], compression="lz4"
-            )
+            bundle_objects(mock_s3_client, "bucket", ["key"], compression="lz4")
 
     def test_invalid_on_error_raises(self, mock_s3_client):
         with pytest.raises(ValueError, match="invalid on_error"):
-            bundle_objects(
-                mock_s3_client, "bucket", ["key"], on_error="panic"
-            )
+            bundle_objects(mock_s3_client, "bucket", ["key"], on_error="panic")
 
     def test_too_many_keys_raises(self, mock_s3_client):
         keys = [f"key_{i}" for i in range(MAX_BUNDLE_KEYS + 1)]
@@ -60,8 +56,9 @@ class TestBundleObjectsValidation:
     def test_max_keys_exactly_at_limit(self, mock_s3_client):
         """Exactly MAX_BUNDLE_KEYS should not raise a validation error."""
         keys = [f"key_{i}" for i in range(MAX_BUNDLE_KEYS)]
-        with patch("tigris_boto3_ext.bundle._bundle_pool") as mock_pool, patch(
-            "tigris_boto3_ext.bundle.SigV4Auth"
+        with (
+            patch("tigris_boto3_ext.objects.bundle._bundle_pool") as mock_pool,
+            patch("tigris_boto3_ext.objects.bundle.SigV4Auth"),
         ):
             mock_response = MagicMock()
             mock_response.status = 200
@@ -72,8 +69,8 @@ class TestBundleObjectsValidation:
 
 
 class TestBundleObjectsRequest:
-    @patch("tigris_boto3_ext.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.bundle.SigV4Auth")
+    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
+    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
     def test_sends_correct_request(self, mock_sigv4, mock_pool, mock_s3_client):
         mock_response = MagicMock()
         mock_response.status = 200
@@ -106,8 +103,8 @@ class TestBundleObjectsRequest:
         assert result.content_type == "application/x-tar"
         assert result.status_code == 200
 
-    @patch("tigris_boto3_ext.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.bundle.SigV4Auth")
+    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
+    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
     def test_default_options(self, mock_sigv4, mock_pool, mock_s3_client):
         mock_response = MagicMock()
         mock_response.status = 200
@@ -124,8 +121,8 @@ class TestBundleObjectsRequest:
         assert request.headers["X-Tigris-Bundle-On-Error"] == "skip"
         assert request.headers["Content-Type"] == "application/json"
 
-    @patch("tigris_boto3_ext.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.bundle.SigV4Auth")
+    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
+    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
     def test_custom_compression_and_error_mode(
         self, mock_sigv4, mock_pool, mock_s3_client
     ):
@@ -150,8 +147,8 @@ class TestBundleObjectsRequest:
 
 
 class TestBundleObjectsErrors:
-    @patch("tigris_boto3_ext.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.bundle.SigV4Auth")
+    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
+    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
     def test_http_error_raises(self, mock_sigv4, mock_pool, mock_s3_client):
         mock_response = MagicMock()
         mock_response.status = 400
@@ -164,8 +161,8 @@ class TestBundleObjectsErrors:
         assert exc_info.value.status_code == 400
         assert "InvalidArgument" in exc_info.value.body
 
-    @patch("tigris_boto3_ext.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.bundle.SigV4Auth")
+    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
+    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
     def test_http_error_with_unreadable_body(
         self, mock_sigv4, mock_pool, mock_s3_client
     ):

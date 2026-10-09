@@ -1,4 +1,4 @@
-"""Unit tests for the delete_snapshot helper."""
+"""Unit tests for bucket snapshots."""
 
 import pytest
 

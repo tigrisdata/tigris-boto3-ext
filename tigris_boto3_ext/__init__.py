@@ -6,7 +6,26 @@ Tigris-specific features like snapshots and bucket forking while maintaining ful
 boto3 compatibility.
 """
 
-from .bundle import (
+from .buckets.delete import (
+    TigrisSoftDeleteEnabled,
+    create_soft_delete_bucket,
+    force_delete_bucket,
+    soft_delete_enabled,
+)
+from .buckets.forks import TigrisFork, create_fork, forked_from
+from .buckets.info import get_bucket_info, has_snapshot_enabled
+from .buckets.snapshots import (
+    TigrisSnapshot,
+    TigrisSnapshotEnabled,
+    create_snapshot,
+    create_snapshot_bucket,
+    delete_snapshot,
+    get_snapshot_version,
+    list_snapshots,
+    snapshot_enabled,
+    with_snapshot,
+)
+from .objects.bundle import (
     BUNDLE_COMPRESSION_GZIP,
     BUNDLE_COMPRESSION_NONE,
     BUNDLE_COMPRESSION_ZSTD,
@@ -17,48 +36,61 @@ from .bundle import (
     BundleResponse,
     bundle_objects,
 )
-from .context_managers import (
-    TigrisFork,
-    TigrisRename,
-    TigrisSnapshot,
-    TigrisSnapshotEnabled,
-)
-from .decorators import (
-    forked_from,
-    snapshot_enabled,
-    with_rename,
-    with_snapshot,
-)
-from .helpers import (
-    create_fork,
-    create_snapshot,
-    create_snapshot_bucket,
-    delete_snapshot,
-    get_bucket_info,
-    get_object_from_snapshot,
-    get_snapshot_version,
-    has_snapshot_enabled,
-    head_object_from_snapshot,
-    list_objects_from_snapshot,
-    list_snapshots,
-    rename_object,
-)
-from .soft_delete import (
-    TigrisSoftDeleteEnabled,
+from .objects.delete import (
     TigrisSoftDeleteView,
-    create_soft_delete_bucket,
-    force_delete_bucket,
     list_deleted_object_versions,
     list_deleted_objects,
     purge_deleted_object,
     restore_deleted_object,
-    soft_delete_enabled,
     with_soft_delete_view,
+)
+from .objects.rename import TigrisRename, rename_object, with_rename
+from .objects.snapshots import (
+    get_object_from_snapshot,
+    head_object_from_snapshot,
+    list_objects_from_snapshot,
 )
 
 __version__ = "0.4.0"
 
 __all__ = [
+    # Bucket info
+    "get_bucket_info",
+    "has_snapshot_enabled",
+    # Bucket deletion
+    "TigrisSoftDeleteEnabled",
+    "soft_delete_enabled",
+    "create_soft_delete_bucket",
+    "force_delete_bucket",
+    # Bucket snapshots
+    "TigrisSnapshotEnabled",
+    "TigrisSnapshot",
+    "snapshot_enabled",
+    "with_snapshot",
+    "create_snapshot_bucket",
+    "create_snapshot",
+    "get_snapshot_version",
+    "list_snapshots",
+    "delete_snapshot",
+    # Bucket forks
+    "TigrisFork",
+    "forked_from",
+    "create_fork",
+    # Object rename
+    "TigrisRename",
+    "with_rename",
+    "rename_object",
+    # Object snapshots
+    "get_object_from_snapshot",
+    "list_objects_from_snapshot",
+    "head_object_from_snapshot",
+    # Object deletion
+    "TigrisSoftDeleteView",
+    "with_soft_delete_view",
+    "list_deleted_objects",
+    "list_deleted_object_versions",
+    "purge_deleted_object",
+    "restore_deleted_object",
     # Bundle API
     "bundle_objects",
     "BundleError",
@@ -69,38 +101,4 @@ __all__ = [
     "BUNDLE_COMPRESSION_ZSTD",
     "BUNDLE_ON_ERROR_SKIP",
     "BUNDLE_ON_ERROR_FAIL",
-    # Soft Delete
-    "TigrisSoftDeleteEnabled",
-    "TigrisSoftDeleteView",
-    "create_soft_delete_bucket",
-    "soft_delete_enabled",
-    "with_soft_delete_view",
-    "purge_deleted_object",
-    "list_deleted_object_versions",
-    "list_deleted_objects",
-    "restore_deleted_object",
-    "force_delete_bucket",
-    # Context Managers
-    "TigrisSnapshotEnabled",
-    "TigrisSnapshot",
-    "TigrisFork",
-    "TigrisRename",
-    # Decorators
-    "snapshot_enabled",
-    "with_snapshot",
-    "forked_from",
-    "with_rename",
-    # Helper Functions
-    "create_snapshot_bucket",
-    "create_snapshot",
-    "get_snapshot_version",
-    "list_snapshots",
-    "delete_snapshot",
-    "create_fork",
-    "get_object_from_snapshot",
-    "list_objects_from_snapshot",
-    "head_object_from_snapshot",
-    "has_snapshot_enabled",
-    "get_bucket_info",
-    "rename_object",
 ]
