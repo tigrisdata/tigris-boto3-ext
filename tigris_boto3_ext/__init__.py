@@ -51,7 +51,7 @@ from .objects.snapshots import (
     list_objects_from_snapshot,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     # Bucket info
