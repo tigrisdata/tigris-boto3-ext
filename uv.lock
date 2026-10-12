@@ -1274,7 +1274,7 @@ wheels = [
 
 [[package]]
 name = "tigris-boto3-ext"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
