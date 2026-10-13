@@ -57,6 +57,7 @@ uv run pytest tests/integration/
 One file per feature, matching the pages under `docs/`:
 
 ```bash
+uv run pytest tests/integration/test_create_bucket.py  # create bucket options
 uv run pytest tests/integration/test_snapshots.py      # snapshots, including deletion
 uv run pytest tests/integration/test_forks.py          # forks
 uv run pytest tests/integration/test_bucket_info.py    # bucket info
@@ -99,7 +100,10 @@ uv run pytest tests/integration/ -vv -s
   - `s3_client`: Creates a real boto3 S3 client
   - `test_bucket_prefix`: Prefix for test bucket names
   - `cleanup_buckets`: Automatically cleans up test buckets after tests
+  - `bucket_metadata()`: Reads `GET /{bucket}?metadata` (storage class, regions) with a signed request
+  - `anonymous_status()`: Status of an unsigned GET to a bucket's public URL (`<bucket>.t3.tigrisfiles.io`; override the domain with `TIGRIS_PUBLIC_DOMAIN`)
 
+- **`test_create_bucket.py`**: Tests creation options: default storage class, regions, public access and anonymous listing, via helper, context manager and decorator
 - **`test_snapshots.py`**: Tests snapshot creation, listing, deletion, and data access
 - **`test_forks.py`**: Tests bucket forking and data isolation
 - **`test_bucket_info.py`**: Tests `has_snapshot_enabled` and `get_bucket_info` on snapshot-enabled, regular, forked, and fork-parent buckets
@@ -192,6 +196,9 @@ Add secrets to your repository and use them in your workflow:
 ## Test Coverage
 
 The integration tests cover, by feature:
+
+**Create bucket**
+- ✅ Default storage class, single/dual/multi-region placement, public-read access and anonymous listing, with gateway defaults checked
 
 **Snapshots**
 - ✅ Creating buckets with snapshot enabled

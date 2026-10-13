@@ -46,6 +46,7 @@ Everything is imported from `tigris_boto3_ext`. Each page lists the feature's he
 
 | Feature | What it does | Start with | Docs | Example |
 |---|---|---|---|---|
+| Create bucket | Public access, default storage class, region placement and anonymous listing at creation | `create_bucket` | [docs/create-bucket.md](docs/create-bucket.md) | [create_bucket_usage.py](examples/create_bucket_usage.py) |
 | Snapshots | Point-in-time copies of a bucket: create, list, read from, delete | `create_snapshot_bucket`, `create_snapshot`, `get_object_from_snapshot` | [docs/snapshots.md](docs/snapshots.md) | [snapshots_usage.py](examples/snapshots_usage.py) |
 | Forks | A new bucket from an existing bucket or one of its snapshots, zero-copy | `create_fork` | [docs/forks.md](docs/forks.md) | [forks_usage.py](examples/forks_usage.py) |
 | Bucket info | Snapshot and fork metadata from `HeadBucket` | `get_bucket_info`, `has_snapshot_enabled` | [docs/bucket-info.md](docs/bucket-info.md) | [bucket_info_usage.py](examples/bucket_info_usage.py) |
@@ -56,7 +57,7 @@ Everything is imported from `tigris_boto3_ext`. Each page lists the feature's he
 
 ## Usage patterns
 
-Snapshots, forks, rename and soft delete each come in three shapes. They do the same thing; pick by how much code the Tigris behaviour should cover. Bucket info, force delete and the Bundle API are single calls and come as helpers only.
+Create bucket, snapshots, forks, rename and soft delete each come in three shapes. They do the same thing; pick by how much code the Tigris behaviour should cover. Bucket info, force delete and the Bundle API are single calls and come as helpers only.
 
 ### Helper functions
 
