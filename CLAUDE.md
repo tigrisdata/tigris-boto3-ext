@@ -44,6 +44,7 @@ tigris_boto3_ext/
 ├── _internal.py         # HeaderInjector, registry, _guard_lock (not public)
 ├── buckets/
 │   ├── info.py          # has_snapshot_enabled, get_bucket_info
+│   ├── create.py        # TigrisBucketOptions, with_bucket_options, create_bucket
 │   ├── delete.py        # TigrisSoftDeleteEnabled, soft_delete_enabled, create_soft_delete_bucket, force_delete_bucket
 │   ├── snapshots.py     # TigrisSnapshotEnabled, TigrisSnapshot, snapshot_enabled, with_snapshot, create_snapshot_bucket, create_snapshot, list_snapshots, delete_snapshot, get_snapshot_version
 │   └── forks.py         # TigrisFork, forked_from, create_fork
@@ -80,6 +81,7 @@ Everything except the bundle API works by injecting custom `X-Tigris-*` headers 
 ### Key Tigris headers
 
 - `X-Tigris-Enable-Snapshot: true` — enable snapshots on bucket creation
+- `X-Amz-Storage-Class: <class>`, `X-Tigris-Regions: <codes>`, `X-Amz-Acl-Public-List-Objects-Enabled: true|false` — creation options (default storage class, placement, anonymous listing); public access is the `ACL=public-read` parameter, not a header
 - `X-Tigris-Snapshot: <bucket>` / `X-Tigris-Snapshot: true; name=<name>` — list/create snapshots
 - `X-Tigris-Snapshot-Version: <version>` — read from a specific snapshot
 - `X-Tigris-Fork-Source-Bucket` / `X-Tigris-Fork-Source-Bucket-Snapshot` — fork source

@@ -6,6 +6,7 @@ Tigris-specific features like snapshots and bucket forking while maintaining ful
 boto3 compatibility.
 """
 
+from .buckets.create import TigrisBucketOptions, create_bucket, with_bucket_options
 from .buckets.delete import (
     TigrisSoftDeleteEnabled,
     create_soft_delete_bucket,
@@ -57,6 +58,10 @@ __all__ = [
     # Bucket info
     "get_bucket_info",
     "has_snapshot_enabled",
+    # Bucket creation
+    "TigrisBucketOptions",
+    "with_bucket_options",
+    "create_bucket",
     # Bucket deletion
     "TigrisSoftDeleteEnabled",
     "soft_delete_enabled",
