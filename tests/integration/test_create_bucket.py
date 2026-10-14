@@ -6,11 +6,12 @@ from tigris_boto3_ext import (
     TigrisBucketOptions,
     TigrisSnapshotEnabled,
     create_bucket,
+    get_bucket_metadata,
     has_snapshot_enabled,
     with_bucket_options,
 )
 
-from .conftest import anonymous_status, bucket_metadata, generate_bucket_name
+from .conftest import anonymous_status, generate_bucket_name
 
 ALL_USERS = "http://acs.amazonaws.com/groups/global/AllUsers"
 
@@ -30,9 +31,9 @@ class TestCreateBucketDefaults:
 
         create_bucket(s3_client, bucket_name)
 
-        metadata = bucket_metadata(s3_client, bucket_name)
+        metadata = get_bucket_metadata(s3_client, bucket_name)
         assert metadata["storage_class"] == "STANDARD"
-        assert metadata["object_regions"] == ""
+        assert metadata["regions"] == []
         assert _public_grants(s3_client, bucket_name) == []
 
 
@@ -46,11 +47,14 @@ class TestCreateBucketOptions:
 
         create_bucket(s3_client, bucket_name, default_storage_class="STANDARD_IA")
 
-        assert bucket_metadata(s3_client, bucket_name)["storage_class"] == "STANDARD_IA"
+        assert (
+            get_bucket_metadata(s3_client, bucket_name)["storage_class"]
+            == "STANDARD_IA"
+        )
 
     @pytest.mark.parametrize(
         ("regions", "expected"),
-        [("iad", "iad"), (["iad", "sjc"], "iad,sjc"), ("usa", "usa")],
+        [("iad", ["iad"]), (["iad", "sjc"], ["iad", "sjc"]), ("usa", ["usa"])],
         ids=["single", "dual", "multi"],
     )
     def test_regions(
@@ -62,7 +66,7 @@ class TestCreateBucketOptions:
 
         create_bucket(s3_client, bucket_name, regions=regions)
 
-        assert bucket_metadata(s3_client, bucket_name)["object_regions"] == expected
+        assert get_bucket_metadata(s3_client, bucket_name)["regions"] == expected
 
     def test_public_access_reads_but_does_not_list(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -110,7 +114,7 @@ class TestBucketOptionsContextAndDecorator:
         with TigrisBucketOptions(s3_client, regions="iad"):
             s3_client.create_bucket(Bucket=bucket_name)
 
-        assert bucket_metadata(s3_client, bucket_name)["object_regions"] == "iad"
+        assert get_bucket_metadata(s3_client, bucket_name)["regions"] == ["iad"]
 
     def test_decorator(self, s3_client, test_bucket_prefix, cleanup_buckets):
         """The decorated function's create_bucket gets the options."""
@@ -123,7 +127,10 @@ class TestBucketOptionsContextAndDecorator:
 
         make_bucket(s3_client, bucket_name)
 
-        assert bucket_metadata(s3_client, bucket_name)["storage_class"] == "STANDARD_IA"
+        assert (
+            get_bucket_metadata(s3_client, bucket_name)["storage_class"]
+            == "STANDARD_IA"
+        )
 
     def test_combines_with_snapshot_enabled(
         self, s3_client, test_bucket_prefix, cleanup_buckets
@@ -136,5 +143,5 @@ class TestBucketOptionsContextAndDecorator:
             create_bucket(s3_client, bucket_name, access="public", regions="iad")
 
         assert has_snapshot_enabled(s3_client, bucket_name) is True
-        assert bucket_metadata(s3_client, bucket_name)["object_regions"] == "iad"
+        assert get_bucket_metadata(s3_client, bucket_name)["regions"] == ["iad"]
         assert _public_grants(s3_client, bucket_name) == ["READ"]

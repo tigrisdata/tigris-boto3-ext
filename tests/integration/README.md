@@ -100,7 +100,6 @@ uv run pytest tests/integration/ -vv -s
   - `s3_client`: Creates a real boto3 S3 client
   - `test_bucket_prefix`: Prefix for test bucket names
   - `cleanup_buckets`: Automatically cleans up test buckets after tests
-  - `bucket_metadata()`: Reads `GET /{bucket}?metadata` (storage class, regions) with a signed request
   - `anonymous_status()`: Status of an unsigned GET to a bucket's public URL (`<bucket>.t3.tigrisfiles.io`; override the domain with `TIGRIS_PUBLIC_DOMAIN`)
 
 - **`test_create_bucket.py`**: Tests creation options: default storage class, regions, public access and anonymous listing, via helper, context manager and decorator
@@ -215,6 +214,7 @@ The integration tests cover, by feature:
 
 **Bucket info**
 - ✅ Snapshot-enabled flag and fork source metadata
+- ✅ Metadata endpoint: defaults, fork parent and child lineage, soft delete, creation options, size estimates, `TigrisAPIError` on a missing bucket
 
 **Object rename**
 - ✅ In-place object rename via helper, context manager, and decorator

@@ -7,6 +7,7 @@ from tigris_boto3_ext import (
     create_snapshot,
     create_snapshot_bucket,
     get_bucket_info,
+    get_bucket_metadata,
     get_snapshot_version,
     has_snapshot_enabled,
 )
@@ -87,6 +88,22 @@ def main():
 
     # Try to create snapshot
     safe_snapshot(s3_client, snapshot_bucket)
+
+    # Example 6: Everything else, from the metadata endpoint
+    print("\nExample 6: Bucket metadata")
+    metadata = get_bucket_metadata(s3_client, snapshot_bucket, with_size=True)
+    print(f"  Created: {metadata['created_at']}")
+    print(f"  Default storage class: {metadata['storage_class']}")
+    print(f"  Regions: {metadata['regions'] or 'global'}")
+    print(f"  Has forks: {metadata['is_fork_parent']}")
+    print(f"  Soft delete: {metadata['soft_delete']}")
+    print(f"  Size: {metadata['size']}")
+
+    child = get_bucket_metadata(s3_client, forked_bucket)
+    for parent in child["fork_parents"]:
+        print(
+            f"  {forked_bucket} was forked from {parent['bucket']} at snapshot {parent['snapshot']}"
+        )
 
 
 if __name__ == "__main__":

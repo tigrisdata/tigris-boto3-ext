@@ -1,11 +1,14 @@
-"""Bucket information read from Tigris-specific HeadBucket headers."""
+"""Bucket information from Tigris HeadBucket headers and the metadata endpoint."""
 
-from typing import TYPE_CHECKING, Any, cast
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.client import S3Client
 else:
     S3Client = object
+
+from tigris_boto3_ext._transport import signed_request
 
 
 def has_snapshot_enabled(s3_client: S3Client, bucket_name: str) -> bool:
@@ -86,6 +89,146 @@ def get_bucket_info(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
     }
 
 
+def get_bucket_metadata(
+    s3_client: S3Client, bucket_name: str, *, with_size: bool = False
+) -> dict[str, Any]:
+    """
+    Get a bucket's Tigris metadata: placement, type, forks, soft delete, size.
+
+    This reads Tigris's ``GET /{bucket}?metadata`` endpoint with one signed
+    request; it is not an S3 operation, so the result is a plain dict
+    rather than a boto3 response. ``get_bucket_info`` is the cheaper HeadBucket
+    variant when snapshot and fork-source flags are all you need.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket
+        with_size: Also ask the gateway for size estimates. Off by default
+            because it is more work server-side.
+
+    Returns:
+        Dictionary with these keys:
+        {
+            'name': str,
+            'created_at': datetime or None,
+            'snapshot_enabled': bool,
+            'storage_class': str,                # default storage class for new objects
+            'regions': list[str],                # [] means global placement
+            'is_fork_parent': bool,              # other buckets were forked from this one
+            'fork_parents': [{'bucket', 'snapshot', 'snapshot_name', 'forked_at',
+                              'snapshot_created_at'}],
+            'soft_delete': {'enabled': bool, 'retention_days': int or None},
+            'allow_object_acl': bool,
+            'cache_control': str or None,
+            'custom_domain': str or None,
+            'size': {'objects', 'bytes', 'objects_all_versions'} or None,  # None unless with_size
+            'raw': dict,                         # the full response body
+        }
+        Settings families (lifecycle rules, CORS, notifications, shadow bucket,
+        shares) are available under ``raw`` in their wire shape. The size
+        values are server-side estimates, updated asynchronously; they can
+        trail recent writes by a few seconds. ``fork_parents`` is recorded with
+        the fork itself; ``is_fork_parent`` on the source bucket is refreshed
+        asynchronously and can lag a new fork, so do not rely on it right after
+        forking.
+
+    Raises:
+        ValueError: If ``bucket_name`` is empty
+        TigrisAPIError: If the gateway answers with an error, for example
+            ``NoSuchBucket`` (404)
+
+    Usage:
+        info = get_bucket_metadata(s3_client, 'my-bucket')
+        if info['is_fork_parent']:
+            print("Other buckets were forked from this one")
+        for parent in info['fork_parents']:
+            print(f"Forked from {parent['bucket']} at snapshot {parent['snapshot']}")
+    """
+    if not bucket_name:
+        msg = "bucket_name is required"
+        raise ValueError(msg)
+
+    query: dict[str, Optional[str]] = {"metadata": None}
+    if with_size:
+        query["with-size"] = "true"
+    response = signed_request(
+        s3_client,
+        "GET",
+        bucket_name,
+        query=query,
+        headers={"Accept": "application/json"},
+    )
+    raw = response.json()
+
+    fork_info = raw.get("ForkInfo") or {}
+    soft_delete = raw.get("soft_delete") or {}
+    regions = raw.get("object_regions") or ""
+
+    return {
+        "name": raw.get("name", bucket_name),
+        "created_at": _parse_timestamp(raw.get("created_at")),
+        "snapshot_enabled": raw.get("type") == 1,
+        "storage_class": raw.get("storage_class"),
+        "regions": [region.strip() for region in regions.split(",") if region.strip()],
+        "is_fork_parent": bool(fork_info.get("HasChildren", False)),
+        "fork_parents": [
+            _parse_fork_parent(parent) for parent in fork_info.get("Parents") or []
+        ],
+        "soft_delete": {
+            "enabled": bool(soft_delete.get("enabled", False)),
+            "retention_days": soft_delete.get("retention_days"),
+        },
+        "allow_object_acl": bool(
+            (raw.get("acl_settings") or {}).get("allow_object_acl", False)
+        ),
+        "cache_control": raw.get("cache_control") or None,
+        "custom_domain": (raw.get("website") or {}).get("domain_name") or None,
+        "size": {
+            "objects": raw.get("estimated_unique_rows"),
+            "bytes": raw.get("estimated_size"),
+            "objects_all_versions": raw.get("estimated_rows"),
+        }
+        if with_size
+        else None,
+        "raw": raw,
+    }
+
+
 def _is_snapshot_enabled_header_set(headers: dict[str, Any]) -> bool:
     """Check if the snapshot enabled header is set in the response headers."""
     return str(headers.get("x-tigris-enable-snapshot", "")).lower() == "true"
+
+
+def _parse_fork_parent(parent: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one ForkInfo.Parents entry.
+
+    The gateway encodes a named snapshot as ``<version>; name=<name>``, the same
+    pseudo-bucket form ``list_snapshots`` returns; an unnamed one is bare.
+    """
+    version, _, name = str(parent.get("Snapshot") or "").partition("; name=")
+    return {
+        "bucket": parent.get("BucketName"),
+        "snapshot": version or None,
+        "snapshot_name": name or None,
+        "forked_at": _parse_timestamp(parent.get("ForkCreatedAt")),
+        "snapshot_created_at": _parse_timestamp(parent.get("SnapshotCreatedAt")),
+    }
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    """Parse the gateway's RFC 3339 timestamps, which carry nanoseconds and a ``Z``."""
+    if not isinstance(value, str) or not value:
+        return None
+    text = value[:-1] + "+00:00" if value.endswith("Z") else value
+    if "." in text:
+        head, _, rest = text.partition(".")
+        digits = ""
+        while rest and rest[0].isdigit():
+            digits += rest[0]
+            rest = rest[1:]
+        text = f"{head}.{digits[:6].ljust(6, '0')}{rest}"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
