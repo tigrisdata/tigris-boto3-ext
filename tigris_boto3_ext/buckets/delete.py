@@ -1,4 +1,4 @@
-"""Bucket deletion: soft delete at creation and force delete."""
+"""Bucket deletion: soft delete at creation, force delete, and recovering deleted buckets."""
 
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, cast
@@ -13,6 +13,7 @@ from tigris_boto3_ext._internal import (
     create_header_injector,
     has_active_injector,
 )
+from tigris_boto3_ext._transport import parse_timestamp, signed_request
 
 F = TypeVar("F", bound=Callable[..., Any])
 """ Context Managers """
@@ -201,3 +202,112 @@ def force_delete_bucket(s3_client: S3Client, bucket_name: str) -> dict[str, Any]
         return cast("dict[str, Any]", s3_client.delete_bucket(Bucket=bucket_name))
     finally:
         injector.unregister()
+
+
+def list_deleted_buckets(
+    s3_client: S3Client,
+    *,
+    max_buckets: Optional[int] = None,
+    continuation_token: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    List one page of the account's soft-deleted buckets.
+
+    These are buckets deleted while soft delete was enabled; each stays
+    recoverable with ``restore_bucket`` until its retention window ends, and
+    its name stays reserved meanwhile. This reads Tigris's
+    ``GET /?OnlyDeleted=true`` endpoint, which is not an S3 operation. Pass the
+    returned ``continuation_token`` back in to fetch the next page.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        max_buckets: Page size; the gateway default applies when None
+        continuation_token: ``continuation_token`` from the previous page
+
+    Returns:
+        {
+            'buckets': [{'name': str, 'created_at': datetime or None,
+                         'modified_at': datetime or None, 'retention_days': int or None}],
+            'continuation_token': str or None,   # None on the last page
+            'raw': dict,                          # the full response body
+        }
+        ``modified_at`` is the gateway's ``CreationDate``: the last change to the
+        bucket, in practice its deletion.
+
+    Raises:
+        ValueError: If ``max_buckets`` is not a positive integer
+        TigrisAPIError: If the gateway answers with an error
+
+    Usage:
+        page = list_deleted_buckets(s3_client, max_buckets=50)
+        for bucket in page['buckets']:
+            print(bucket['name'], bucket['retention_days'])
+    """
+    query: dict[str, Optional[str]] = {"OnlyDeleted": "true"}
+    if max_buckets is not None:
+        if (
+            isinstance(max_buckets, bool)
+            or not isinstance(max_buckets, int)
+            or max_buckets < 1
+        ):
+            msg = "max_buckets must be a positive integer"
+            raise ValueError(msg)
+        query["max-buckets"] = str(max_buckets)
+    if continuation_token:
+        query["continuation-token"] = continuation_token
+
+    response = signed_request(
+        s3_client, "GET", "", query=query, headers={"Accept": "application/json"}
+    )
+    raw = response.json()
+    entries = (raw.get("Buckets") or {}).get("Bucket") or []
+    if isinstance(entries, dict):  # a single entry can arrive unwrapped
+        entries = [entries]
+
+    return {
+        "buckets": [
+            {
+                "name": entry.get("Name"),
+                "created_at": parse_timestamp(entry.get("InitialCreatedDate")),
+                "modified_at": parse_timestamp(entry.get("CreationDate")),
+                "retention_days": (entry.get("SoftDeleteInfo") or {}).get(
+                    "RetentionDays"
+                ),
+            }
+            for entry in entries
+        ],
+        "continuation_token": raw.get("ContinuationToken") or None,
+        "raw": raw,
+    }
+
+
+def restore_bucket(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
+    """
+    Bring a soft-deleted bucket back, with the objects it held when deleted.
+
+    This reads Tigris's ``POST /{bucket}?restore`` endpoint, which is not an S3
+    operation. The bucket must be in the soft-deleted state: deleted while soft
+    delete was enabled and still within its retention window.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the soft-deleted bucket
+
+    Returns:
+        {'name': bucket_name, 'request_id': str or None}
+
+    Raises:
+        ValueError: If ``bucket_name`` is empty
+        TigrisAPIError: 400 ``InvalidArgument`` when the bucket is not
+            soft-deleted (for example it is live), 404 ``NoSuchBucket`` when it
+            does not exist or its retention window has already expired
+
+    Usage:
+        restore_bucket(s3_client, 'my-bucket')
+    """
+    if not bucket_name:
+        msg = "bucket_name is required"
+        raise ValueError(msg)
+
+    response = signed_request(s3_client, "POST", bucket_name, query="restore")
+    return {"name": bucket_name, "request_id": response.headers.get("x-amz-request-id")}

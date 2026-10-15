@@ -13,9 +13,12 @@ from tigris_boto3_ext import (
     TigrisSoftDeleteEnabled,
     TigrisSoftDeleteView,
     create_soft_delete_bucket,
+    force_delete_bucket,
+    list_deleted_buckets,
     list_deleted_object_versions,
     list_deleted_objects,
     purge_deleted_object,
+    restore_bucket,
     restore_deleted_object,
     soft_delete_enabled,
     with_soft_delete_view,
@@ -153,6 +156,36 @@ def example_restore_deleted_object():
         print(f"Restored {version['Key']} (version {version['VersionId']})")
 
 
+def example_recover_deleted_bucket():
+    """List the account's deleted buckets and bring one back."""
+    print("\n=== list_deleted_buckets / restore_bucket helpers ===")
+
+    # A soft-delete bucket with data, deleted by mistake
+    create_soft_delete_bucket(s3, "quarterly-reports", retention_days=30)
+    s3.put_object(Bucket="quarterly-reports", Key="q3.pdf", Body=b"numbers")
+    force_delete_bucket(s3, "quarterly-reports")
+
+    # It is in the deleted list, with its retention window, until the window ends
+    token = None
+    while True:
+        page = list_deleted_buckets(s3, max_buckets=100, continuation_token=token)
+        for bucket in page["buckets"]:
+            if bucket["name"] == "quarterly-reports":
+                print(
+                    f"{bucket['name']} deleted at {bucket['modified_at']}, "
+                    f"{bucket['retention_days']} days to recover"
+                )
+        token = page["continuation_token"]
+        if not token:
+            break
+
+    # Restore it, objects included
+    restore_bucket(s3, "quarterly-reports")
+    print(
+        f"Restored quarterly-reports; q3.pdf is back: {s3.head_object(Bucket='quarterly-reports', Key='q3.pdf')['ContentLength']} bytes"
+    )
+
+
 if __name__ == "__main__":
     print("Tigris boto3 Extensions - Soft Delete Usage Examples")
     print("=" * 50)
@@ -165,3 +198,4 @@ if __name__ == "__main__":
     example_list_deleted_objects()
     example_purge_deleted_version()
     example_restore_deleted_object()
+    example_recover_deleted_bucket()

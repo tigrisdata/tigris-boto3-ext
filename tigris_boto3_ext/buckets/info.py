@@ -1,6 +1,5 @@
 """Bucket information from Tigris HeadBucket headers and the metadata endpoint."""
 
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
@@ -8,7 +7,7 @@ if TYPE_CHECKING:
 else:
     S3Client = object
 
-from tigris_boto3_ext._transport import signed_request
+from tigris_boto3_ext._transport import parse_timestamp, signed_request
 
 
 def has_snapshot_enabled(s3_client: S3Client, bucket_name: str) -> bool:
@@ -166,7 +165,7 @@ def get_bucket_metadata(
 
     return {
         "name": raw.get("name", bucket_name),
-        "created_at": _parse_timestamp(raw.get("created_at")),
+        "created_at": parse_timestamp(raw.get("created_at")),
         "snapshot_enabled": raw.get("type") == 1,
         "storage_class": raw.get("storage_class"),
         "regions": [region.strip() for region in regions.split(",") if region.strip()],
@@ -210,25 +209,6 @@ def _parse_fork_parent(parent: dict[str, Any]) -> dict[str, Any]:
         "bucket": parent.get("BucketName"),
         "snapshot": version or None,
         "snapshot_name": name or None,
-        "forked_at": _parse_timestamp(parent.get("ForkCreatedAt")),
-        "snapshot_created_at": _parse_timestamp(parent.get("SnapshotCreatedAt")),
+        "forked_at": parse_timestamp(parent.get("ForkCreatedAt")),
+        "snapshot_created_at": parse_timestamp(parent.get("SnapshotCreatedAt")),
     }
-
-
-def _parse_timestamp(value: Any) -> Optional[datetime]:
-    """Parse the gateway's RFC 3339 timestamps, which carry nanoseconds and a ``Z``."""
-    if not isinstance(value, str) or not value:
-        return None
-    text = value[:-1] + "+00:00" if value.endswith("Z") else value
-    if "." in text:
-        head, _, rest = text.partition(".")
-        digits = ""
-        while rest and rest[0].isdigit():
-            digits += rest[0]
-            rest = rest[1:]
-        text = f"{head}.{digits[:6].ljust(6, '0')}{rest}"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)

@@ -5,6 +5,7 @@ import html
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import quote
@@ -220,3 +221,25 @@ def _parse_error_document(
 
 def _optional_str(value: Any) -> Optional[str]:
     return str(value) if value not in (None, "") else None
+
+
+def parse_timestamp(value: Any) -> Optional[datetime]:
+    """Parse a Tigris RFC 3339 timestamp, which may carry nanoseconds and a ``Z``.
+
+    Returns None for missing or unparseable values.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    text = value[:-1] + "+00:00" if value.endswith("Z") else value
+    if "." in text:
+        head, _, rest = text.partition(".")
+        digits = ""
+        while rest and rest[0].isdigit():
+            digits += rest[0]
+            rest = rest[1:]
+        text = f"{head}.{digits[:6].ljust(6, '0')}{rest}"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)

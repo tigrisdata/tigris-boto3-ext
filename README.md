@@ -51,7 +51,7 @@ Everything is imported from `tigris_boto3_ext`. Each page lists the feature's he
 | Forks | A new bucket from an existing bucket or one of its snapshots, zero-copy | `create_fork` | [docs/forks.md](docs/forks.md) | [forks_usage.py](examples/forks_usage.py) |
 | Bucket info | Snapshot and fork flags from `HeadBucket`; placement, storage class, forks, soft delete and size from the metadata endpoint | `get_bucket_info`, `get_bucket_metadata` | [docs/bucket-info.md](docs/bucket-info.md) | [bucket_info_usage.py](examples/bucket_info_usage.py) |
 | Object rename | Move an object to a new key without rewriting its data | `rename_object` | [docs/rename.md](docs/rename.md) | [rename_usage.py](examples/rename_usage.py) |
-| Soft delete | Deleted objects stay recoverable for 7–90 days: list, restore, purge | `create_soft_delete_bucket`, `restore_deleted_object` | [docs/soft-delete.md](docs/soft-delete.md) | [soft_delete_usage.py](examples/soft_delete_usage.py) |
+| Soft delete | Deleted objects and buckets stay recoverable for 7–90 days: list, restore, purge | `create_soft_delete_bucket`, `restore_deleted_object`, `restore_bucket` | [docs/soft-delete.md](docs/soft-delete.md) | [soft_delete_usage.py](examples/soft_delete_usage.py) |
 | Force delete | Delete a bucket that still contains objects | `force_delete_bucket` | [docs/force-delete.md](docs/force-delete.md) | [force_delete_usage.py](examples/force_delete_usage.py) |
 | Bundle API | Thousands of objects in one request, as a streaming tar archive | `bundle_objects` | [docs/bundle.md](docs/bundle.md) | [bundle_usage.py](examples/bundle_usage.py) |
 
@@ -103,7 +103,7 @@ boto3 lets you hook into a request just before it is signed. This library regist
 
 Contexts nest. When two active contexts set the same header on the same operation, the inner one wins.
 
-Two features talk to Tigris endpoints that are not S3 operations — the Bundle API (`/{bucket}?bundle`) and bucket metadata (`/{bucket}?metadata`). For those the library signs and sends the request itself with the client's credentials, region and endpoint, and a gateway error raises `TigrisAPIError` (`status_code`, `code`, `message`, `request_id`).
+A few features talk to Tigris endpoints that are not S3 operations — the Bundle API (`/{bucket}?bundle`), bucket metadata (`/{bucket}?metadata`) and deleted-bucket listing and restore (`/?OnlyDeleted=true`, `/{bucket}?restore`). For those the library signs and sends the request itself with the client's credentials, region and endpoint, and a gateway error raises `TigrisAPIError` (`status_code`, `code`, `message`, `request_id`).
 
 ### Thread safety
 
