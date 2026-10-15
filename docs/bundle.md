@@ -50,7 +50,7 @@ with bundle_objects(s3, "my-dataset-bucket", keys) as response:
       print(entry["key"], entry["reason"])
   ```
 
-- `BUNDLE_ON_ERROR_FAIL`: the request fails as a whole and `bundle_objects` raises `BundleError`, which carries `status_code` and the server's `body`. Use it for inference, where every object must be present.
+- `BUNDLE_ON_ERROR_FAIL`: the request fails as a whole and `bundle_objects` raises `BundleError`, a `TigrisAPIError` carrying `status_code`, `code`, `request_id` and the server's `body`. Use it for inference, where every object must be present.
 
   ```python
   from tigris_boto3_ext import BUNDLE_ON_ERROR_FAIL, BundleError

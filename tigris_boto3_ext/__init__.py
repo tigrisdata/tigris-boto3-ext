@@ -6,6 +6,7 @@ Tigris-specific features like snapshots and bucket forking while maintaining ful
 boto3 compatibility.
 """
 
+from ._transport import TigrisAPIError
 from .buckets.create import TigrisBucketOptions, create_bucket, with_bucket_options
 from .buckets.delete import (
     TigrisSoftDeleteEnabled,
@@ -14,7 +15,7 @@ from .buckets.delete import (
     soft_delete_enabled,
 )
 from .buckets.forks import TigrisFork, create_fork, forked_from
-from .buckets.info import get_bucket_info, has_snapshot_enabled
+from .buckets.info import get_bucket_info, get_bucket_metadata, has_snapshot_enabled
 from .buckets.snapshots import (
     TigrisSnapshot,
     TigrisSnapshotEnabled,
@@ -52,12 +53,15 @@ from .objects.snapshots import (
     list_objects_from_snapshot,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     # Bucket info
     "get_bucket_info",
+    "get_bucket_metadata",
     "has_snapshot_enabled",
+    # Errors from Tigris endpoints outside the S3 API
+    "TigrisAPIError",
     # Bucket creation
     "TigrisBucketOptions",
     "with_bucket_options",

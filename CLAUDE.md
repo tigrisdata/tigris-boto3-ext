@@ -42,6 +42,7 @@ Modules are grouped by the resource their S3 operation targets, then by feature:
 tigris_boto3_ext/
 ├── __init__.py          # flat public API: re-exports everything below
 ├── _internal.py         # HeaderInjector, registry, _guard_lock (not public)
+├── _transport.py        # signed_request to Tigris endpoints outside the S3 API, TigrisAPIError (only the error is public)
 ├── buckets/
 │   ├── info.py          # has_snapshot_enabled, get_bucket_info
 │   ├── create.py        # TigrisBucketOptions, with_bucket_options, create_bucket
@@ -55,7 +56,7 @@ tigris_boto3_ext/
     └── bundle.py        # BundleError, BundleResponse, bundle_objects
 ```
 
-Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Shared infrastructure stays in `_internal.py`.
+Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Shared infrastructure stays in `_internal.py` (header injection) and `_transport.py` (signed requests to non-S3 endpoints). A helper that calls one of those endpoints still lives in the resource module it is about (`get_bucket_metadata` in `buckets/info.py`).
 
 ### Feature footprint
 
@@ -73,6 +74,10 @@ The README is the front door only: install, quick start, the feature table, the 
 ### Header injection via boto3 events
 
 Everything except the bundle API works by injecting custom `X-Tigris-*` headers into S3 requests through boto3's event system. `_internal.py` provides the `HeaderInjector` infrastructure. It registers handlers on `before-sign.s3.<Operation>` events so headers are included in the SigV4 signature. A global registry tracks `(client_id, event_name)` pairs to allow safe nesting of multiple context managers on the same client (inner injector wins on header conflicts). Helpers whose header changes the meaning of a destructive operation (`delete_snapshot`, `force_delete_bucket`, `restore_deleted_object`) take `_guard_lock` and refuse to run while another injector is active for the same operation on the same client.
+
+### Tigris endpoints outside the S3 API (direct HTTP)
+
+Some Tigris features are HTTP endpoints rather than S3 operations (`GET /{bucket}?metadata`, `POST /{bucket}?bundle`, and the bucket-settings family still to come). `_transport.signed_request(s3_client, method, path, query=, headers=, body=, stream=)` builds the URL from the client's endpoint, signs with SigV4 using the client's credentials and region (`"auto"` by default), sends through the client's own botocore HTTP session (`client._endpoint.http_session`, so proxies, CA bundle, certificates and timeouts match its S3 calls), and returns a `TigrisResponse` (`status_code`, lower-cased `headers`, `body`, `.json()`), or the raw urllib3 response with `stream=True`. Any 4xx/5xx raises `TigrisAPIError(message, status_code, body, code, request_id)`; the error document is parsed from Tigris JSON (`{Code, Message, RequestId}`, returned when `Accept: application/json` is sent) or S3 XML, falling back to the raw body. `BundleError` subclasses it. Unit tests patch `tigris_boto3_ext._transport.SigV4Auth` and set `mock_s3_client._endpoint.http_session.send.return_value` to an AWSResponse-like object (`status_code`, `headers`, `content`, `raw`), or patch `signed_request` where a feature module imports it.
 
 ### Bundle API (direct HTTP)
 

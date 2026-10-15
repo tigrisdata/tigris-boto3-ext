@@ -24,7 +24,7 @@ After the call, `head_bucket` on the name returns 404.
 ## Notes
 
 - **One bucket deletion at a time per client.** The header is injected through the client's event system, so it applies to every `delete_bucket` issued through that client while the call is in flight. `force_delete_bucket` refuses to overlap with another bucket-deleting helper on the same client (`delete_snapshot`, another `force_delete_bucket`) and raises `RuntimeError`. Use a client per thread if you delete concurrently.
-- **Check before you force.** On a bucket without soft delete this is irreversible, and it takes every object in the bucket with it. `get_bucket_info` does not report soft delete yet; if you are unsure how the bucket was created, empty it with normal deletes first.
+- **Check before you force.** On a bucket without soft delete this is irreversible, and it takes every object in the bucket with it. If you are unsure how the bucket was created, check first: `get_bucket_metadata(s3, bucket)["soft_delete"]["enabled"]` ([bucket info](bucket-info.md)).
 
 ## Headers
 

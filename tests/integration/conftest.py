@@ -1,6 +1,5 @@
 """Shared fixtures for integration tests."""
 
-import json
 import os
 import time
 import uuid
@@ -8,8 +7,6 @@ import uuid
 import boto3
 import pytest
 import urllib3
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
 
 
 @pytest.fixture
@@ -66,24 +63,6 @@ def generate_bucket_name(prefix: str = "tigris-boto3-ext-test-", suffix: str = "
     """
     unique_id = uuid.uuid4().hex[:12]
     return f"{prefix}{suffix}{unique_id}"
-
-
-def bucket_metadata(s3_client, bucket_name):
-    """Tigris bucket metadata from GET /{bucket}?metadata, signed like the bundle API."""
-    endpoint = s3_client.meta.endpoint_url.rstrip("/")
-    credentials = s3_client._request_signer._credentials.get_frozen_credentials()
-    request = AWSRequest(
-        method="GET",
-        url=f"{endpoint}/{bucket_name}?metadata",
-        headers={"Accept": "application/json"},
-    )
-    SigV4Auth(credentials, "s3", s3_client.meta.region_name or "auto").add_auth(request)
-    prepared = request.prepare()
-    response = urllib3.PoolManager().request(
-        "GET", prepared.url, headers=dict(prepared.headers)
-    )
-    assert response.status == 200, f"metadata request failed: {response.status}"
-    return json.loads(response.data)
 
 
 # Public buckets are served from the public domains, not the API endpoint:

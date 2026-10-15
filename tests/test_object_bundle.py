@@ -1,6 +1,6 @@
 """Tests for bundle_objects function."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -12,6 +12,19 @@ from tigris_boto3_ext.objects.bundle import (
     BundleResponse,
     bundle_objects,
 )
+
+
+def _transport_response(status_code=200, headers=None, body=b""):
+    """The parts of botocore's AWSResponse that the transport helper reads."""
+    response = MagicMock()
+    response.status_code = status_code
+    response.headers = headers or {}
+    response.content = body
+    # bundle_objects reads status and headers off the streamed body object.
+    response.raw.status = status_code
+    response.raw.headers = headers or {}
+    response.raw.read.return_value = body
+    return response
 
 
 @pytest.fixture
@@ -56,28 +69,21 @@ class TestBundleObjectsValidation:
     def test_max_keys_exactly_at_limit(self, mock_s3_client):
         """Exactly MAX_BUNDLE_KEYS should not raise a validation error."""
         keys = [f"key_{i}" for i in range(MAX_BUNDLE_KEYS)]
-        with (
-            patch("tigris_boto3_ext.objects.bundle._bundle_pool") as mock_pool,
-            patch("tigris_boto3_ext.objects.bundle.SigV4Auth"),
-        ):
-            mock_response = MagicMock()
-            mock_response.status = 200
-            mock_response.headers = {"Content-Type": "application/x-tar"}
-            mock_pool.urlopen.return_value = mock_response
+        with patch("tigris_boto3_ext._transport.SigV4Auth"):
+            mock_s3_client._endpoint.http_session.send.return_value = (
+                _transport_response(200, {"Content-Type": "application/x-tar"})
+            )
             result = bundle_objects(mock_s3_client, "bucket", keys)
             assert isinstance(result, BundleResponse)
 
 
 class TestBundleObjectsRequest:
-    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
-    def test_sends_correct_request(self, mock_sigv4, mock_pool, mock_s3_client):
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.headers = {"Content-Type": "application/x-tar"}
-        mock_response.content = b""
-
-        mock_pool.urlopen.return_value = mock_response
+    @patch("tigris_boto3_ext._transport.SigV4Auth")
+    def test_sends_correct_request(self, mock_sigv4, mock_s3_client):
+        send = mock_s3_client._endpoint.http_session.send
+        send.return_value = _transport_response(
+            200, {"Content-Type": "application/x-tar"}
+        )
 
         result = bundle_objects(
             mock_s3_client,
@@ -88,28 +94,23 @@ class TestBundleObjectsRequest:
         # Verify SigV4 was called.
         mock_sigv4.assert_called_once()
 
-        # Verify session.send was called.
-        mock_pool.urlopen.assert_called_once()
-
-        # Verify the request args (method, url).
-        call_args = mock_pool.urlopen.call_args
-        method = call_args[0][0]
-        url = call_args[0][1]
-        assert method == "POST"
-        assert "my-bucket" in url
-        assert "bundle" in url
+        # Verify the request went through the client's own HTTP session, streaming.
+        send.assert_called_once()
+        prepared = send.call_args[0][0]
+        assert prepared.method == "POST"
+        assert "my-bucket" in prepared.url
+        assert "bundle" in prepared.url
+        assert prepared.stream_output is True
 
         assert isinstance(result, BundleResponse)
         assert result.content_type == "application/x-tar"
         assert result.status_code == 200
 
-    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
-    def test_default_options(self, mock_sigv4, mock_pool, mock_s3_client):
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.headers = {"Content-Type": "application/x-tar"}
-        mock_pool.urlopen.return_value = mock_response
+    @patch("tigris_boto3_ext._transport.SigV4Auth")
+    def test_default_options(self, mock_sigv4, mock_s3_client):
+        mock_s3_client._endpoint.http_session.send.return_value = _transport_response(
+            200, {"Content-Type": "application/x-tar"}
+        )
 
         bundle_objects(mock_s3_client, "bucket", ["key"])
 
@@ -121,15 +122,11 @@ class TestBundleObjectsRequest:
         assert request.headers["X-Tigris-Bundle-On-Error"] == "skip"
         assert request.headers["Content-Type"] == "application/json"
 
-    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
-    def test_custom_compression_and_error_mode(
-        self, mock_sigv4, mock_pool, mock_s3_client
-    ):
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.headers = {"Content-Type": "application/gzip"}
-        mock_pool.urlopen.return_value = mock_response
+    @patch("tigris_boto3_ext._transport.SigV4Auth")
+    def test_custom_compression_and_error_mode(self, mock_sigv4, mock_s3_client):
+        mock_s3_client._endpoint.http_session.send.return_value = _transport_response(
+            200, {"Content-Type": "application/gzip"}
+        )
 
         result = bundle_objects(
             mock_s3_client,
@@ -147,37 +144,38 @@ class TestBundleObjectsRequest:
 
 
 class TestBundleObjectsErrors:
-    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
-    def test_http_error_raises(self, mock_sigv4, mock_pool, mock_s3_client):
-        mock_response = MagicMock()
-        mock_response.status = 400
-        mock_response.read.return_value = b"<Error><Code>InvalidArgument</Code></Error>"
-        mock_pool.urlopen.return_value = mock_response
+    @patch("tigris_boto3_ext._transport.SigV4Auth")
+    def test_http_error_raises(self, mock_sigv4, mock_s3_client):
+        mock_s3_client._endpoint.http_session.send.return_value = _transport_response(
+            400,
+            {"X-Amz-Request-Id": "req-1"},
+            b"<Error><Code>InvalidArgument</Code><Message>bad key</Message></Error>",
+        )
 
         with pytest.raises(BundleError, match="HTTP 400") as exc_info:
             bundle_objects(mock_s3_client, "bucket", ["key"])
 
         assert exc_info.value.status_code == 400
         assert "InvalidArgument" in exc_info.value.body
+        # The parsed fields survive the wrap into BundleError.
+        assert exc_info.value.code == "InvalidArgument"
+        assert exc_info.value.request_id == "req-1"
 
-    @patch("tigris_boto3_ext.objects.bundle._bundle_pool")
-    @patch("tigris_boto3_ext.objects.bundle.SigV4Auth")
-    def test_http_error_with_unreadable_body(
-        self, mock_sigv4, mock_pool, mock_s3_client
-    ):
+    @patch("tigris_boto3_ext._transport.SigV4Auth")
+    def test_http_error_with_unreadable_body(self, mock_sigv4, mock_s3_client):
         """Error body read failure should still raise and close the response."""
-        mock_response = MagicMock()
-        mock_response.status = 500
-        mock_response.read.side_effect = OSError("connection reset")
-        mock_pool.urlopen.return_value = mock_response
+        mock_response = _transport_response(500)
+        type(mock_response).content = PropertyMock(
+            side_effect=OSError("connection reset")
+        )
+        mock_s3_client._endpoint.http_session.send.return_value = mock_response
 
         with pytest.raises(BundleError, match="HTTP 500") as exc_info:
             bundle_objects(mock_s3_client, "bucket", ["key"])
 
         assert exc_info.value.status_code == 500
         assert exc_info.value.body == ""
-        mock_response.close.assert_called_once()
+        mock_response.raw.close.assert_called_once()
 
 
 class TestBundleResponse:

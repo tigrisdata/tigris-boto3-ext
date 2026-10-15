@@ -1,18 +1,9 @@
 """Bundle API support for fetching multiple objects as a streaming tar archive."""
 
-import hashlib
 import json
-from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Optional
 
-import urllib3
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
-
-_bundle_pool = urllib3.PoolManager(
-    num_pools=10,
-    maxsize=16,
-)
+from tigris_boto3_ext._transport import TigrisAPIError, signed_request
 
 MAX_BUNDLE_KEYS = 5000
 
@@ -30,13 +21,24 @@ BUNDLE_ON_ERROR_SKIP = "skip"
 BUNDLE_ON_ERROR_FAIL = "fail"
 
 
-class BundleError(Exception):
+class BundleError(TigrisAPIError):
     """Raised when a bundle request fails."""
 
-    def __init__(self, message: str, status_code: int, body: str) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.body = body
+    def __init__(
+        self,
+        message: str,
+        status_code: int,
+        body: str,
+        code: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            body=body,
+            code=code,
+            request_id=request_id,
+        )
 
 
 class BundleResponse:
@@ -183,45 +185,33 @@ def bundle_objects(
         msg = f"too many keys: {len(keys)} (max {MAX_BUNDLE_KEYS} per request)"
         raise ValueError(msg)
 
-    # Extract endpoint and credentials from the boto3 client.
-    endpoint = s3_client.meta.endpoint_url
-    credentials = s3_client._request_signer._credentials.get_frozen_credentials()  # type: ignore[attr-defined]  # noqa: SLF001
-    region = s3_client.meta.region_name or "auto"
-
-    url = f"{endpoint.rstrip('/')}/{bucket}?bundle"
-
     body = json.dumps({"keys": keys})
-
     headers = {
         "Content-Type": "application/json",
         "X-Tigris-Bundle-Format": "tar",
         "X-Tigris-Bundle-Compression": compression,
         "X-Tigris-Bundle-On-Error": on_error,
-        "X-Amz-Content-Sha256": hashlib.sha256(body.encode()).hexdigest(),
     }
 
-    # Sign the request with SigV4.
-    request = AWSRequest(method="POST", url=url, data=body, headers=headers)
-    SigV4Auth(credentials, "s3", region).add_auth(request)
-
-    prepared = request.prepare()
-    response = _bundle_pool.urlopen(
-        prepared.method,
-        prepared.url,
-        body=prepared.body,
-        headers=dict(prepared.headers),
-        preload_content=False,
-    )
-
-    if response.status >= HTTPStatus.BAD_REQUEST:
-        try:
-            error_body = response.read().decode("utf-8", errors="replace")
-        except Exception:
-            error_body = ""
-        finally:
-            response.close()
-        msg = f"Bundle request failed (HTTP {response.status}): {error_body}"
-        raise BundleError(msg, status_code=response.status, body=error_body)
+    try:
+        response = signed_request(
+            s3_client,
+            "POST",
+            bucket,
+            query="bundle",
+            headers=headers,
+            body=body,
+            stream=True,
+        )
+    except TigrisAPIError as e:
+        msg = f"Bundle request failed (HTTP {e.status_code}): {e.body}"
+        raise BundleError(
+            msg,
+            status_code=e.status_code,
+            body=e.body,
+            code=e.code,
+            request_id=e.request_id,
+        ) from e
 
     return BundleResponse(
         body=response,
