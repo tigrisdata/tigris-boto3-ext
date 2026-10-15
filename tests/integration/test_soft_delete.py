@@ -1,18 +1,23 @@
 """Integration tests for soft delete."""
 
 import contextlib
+import time
+from datetime import datetime
 
 import pytest
 from botocore.exceptions import ClientError
 
 from tigris_boto3_ext import (
+    TigrisAPIError,
     TigrisSnapshotEnabled,
     TigrisSoftDeleteEnabled,
     create_soft_delete_bucket,
     force_delete_bucket,
+    list_deleted_buckets,
     list_deleted_object_versions,
     list_deleted_objects,
     purge_deleted_object,
+    restore_bucket,
     restore_deleted_object,
 )
 
@@ -215,3 +220,108 @@ class TestForceDeleteBucket:
 
         assert not _assert_bucket_gone(s3_client, bucket_name)
         cleanup_soft_delete_buckets.remove(bucket_name)
+
+
+def _all_deleted_buckets(s3_client):
+    """Every entry of the deleted list, following the continuation tokens."""
+    token = None
+    while True:
+        page = list_deleted_buckets(s3_client, max_buckets=200, continuation_token=token)
+        yield from page["buckets"]
+        token = page["continuation_token"]
+        if not token:
+            return
+
+
+def _find_deleted_bucket(s3_client, bucket_name, timeout=15):
+    """The deleted-list entry for the bucket, polling briefly in case the listing lags."""
+    deadline = time.time() + timeout
+    while True:
+        for entry in _all_deleted_buckets(s3_client):
+            if entry["name"] == bucket_name:
+                return entry
+        if time.time() > deadline:
+            return None
+        time.sleep(1)
+
+
+class TestDeletedBuckets:
+    """Test listing and restoring soft-deleted buckets."""
+
+    def test_deleted_bucket_is_listed_and_restorable(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """A force-deleted soft-delete bucket shows up in the deleted list and comes back whole."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "softdel-restore-")
+        cleanup_soft_delete_buckets.append(bucket_name)
+        create_soft_delete_bucket(s3_client, bucket_name, retention_days=7)
+        s3_client.put_object(Bucket=bucket_name, Key="keep.txt", Body=b"survives")
+
+        force_delete_bucket(s3_client, bucket_name)
+        _assert_bucket_gone(s3_client, bucket_name)
+
+        entry = _find_deleted_bucket(s3_client, bucket_name)
+        assert entry is not None, "deleted bucket not listed"
+        assert entry["retention_days"] == 7
+        assert isinstance(entry["created_at"], datetime)
+        assert isinstance(entry["modified_at"], datetime)
+
+        result = restore_bucket(s3_client, bucket_name)
+
+        assert result["name"] == bucket_name
+        assert bucket_exists(s3_client, bucket_name)
+        body = s3_client.get_object(Bucket=bucket_name, Key="keep.txt")["Body"].read()
+        assert body == b"survives"
+        assert _find_deleted_bucket(s3_client, bucket_name, timeout=0) is None
+
+    def test_listing_pages(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """max_buckets bounds the page and the continuation token moves it forward."""
+        names = [
+            generate_bucket_name(test_bucket_prefix, f"softdel-page{i}-") for i in (1, 2)
+        ]
+        cleanup_soft_delete_buckets.extend(names)
+        for name in names:
+            create_soft_delete_bucket(s3_client, name)
+            force_delete_bucket(s3_client, name)
+            # Soft-deleted on purpose; nothing left for the fixture to clean up.
+            cleanup_soft_delete_buckets.remove(name)
+        # Both must be visible before the paging assertions below can mean anything.
+        for name in names:
+            assert _find_deleted_bucket(s3_client, name) is not None, name
+
+        # At least two deleted buckets exist now, so a page of one must be truncated.
+        first = list_deleted_buckets(s3_client, max_buckets=1)
+        assert len(first["buckets"]) == 1
+        assert first["continuation_token"]
+
+        second = list_deleted_buckets(
+            s3_client, max_buckets=1, continuation_token=first["continuation_token"]
+        )
+        assert len(second["buckets"]) == 1
+        assert second["buckets"][0]["name"] != first["buckets"][0]["name"]
+
+    def test_restoring_a_live_bucket_is_rejected(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """Only soft-deleted buckets can be restored."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "softdel-live-")
+        cleanup_soft_delete_buckets.append(bucket_name)
+        create_soft_delete_bucket(s3_client, bucket_name)
+
+        with pytest.raises(TigrisAPIError) as exc_info:
+            restore_bucket(s3_client, bucket_name)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.code == "InvalidArgument"
+
+    def test_restoring_an_unknown_bucket_raises(self, s3_client, test_bucket_prefix):
+        """A bucket that never existed, or whose window expired, is NoSuchBucket."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "softdel-missing-")
+
+        with pytest.raises(TigrisAPIError) as exc_info:
+            restore_bucket(s3_client, bucket_name)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.code == "NoSuchBucket"

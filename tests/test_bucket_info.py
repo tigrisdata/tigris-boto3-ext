@@ -12,8 +12,7 @@ from tigris_boto3_ext import (
     get_bucket_metadata,
     has_snapshot_enabled,
 )
-from tigris_boto3_ext._transport import TigrisResponse
-from tigris_boto3_ext.buckets.info import _parse_timestamp
+from tigris_boto3_ext._transport import TigrisResponse, parse_timestamp
 
 
 def _head_bucket_response(headers):
@@ -268,4 +267,4 @@ class TestParseTimestamp:
         ],
     )
     def test_gateway_timestamp_formats(self, value, expected):
-        assert _parse_timestamp(value) == expected
+        assert parse_timestamp(value) == expected

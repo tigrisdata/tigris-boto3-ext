@@ -1,6 +1,6 @@
 # Soft delete
 
-On a bucket with soft delete enabled, deleting an object does not remove it. The deleted version stays recoverable for the bucket's retention window, 7 to 90 days, after which it is removed for good. During the window you can list what is recoverable, restore it, or purge it early. The bucket itself is covered too: deleting the bucket moves it to a recoverable state instead of destroying it.
+On a bucket with soft delete enabled, deleting an object does not remove it. The deleted version stays recoverable for the bucket's retention window, 7 to 90 days, after which it is removed for good. During the window you can list what is recoverable, restore it, or purge it early. The bucket itself is covered too: deleting the bucket moves it to a recoverable state instead of destroying it, and you can list and restore deleted buckets the same way.
 
 Tigris docs: [Soft delete](https://www.tigrisdata.com/docs/buckets/soft-delete/).
 Runnable example: [`examples/soft_delete_usage.py`](../examples/soft_delete_usage.py).
@@ -86,7 +86,25 @@ The version id is required. Inside the soft-delete view, a `delete_object` *with
 
 `s3.delete_bucket` works once the bucket is empty of live objects. To delete a bucket that still has objects, use [`force_delete_bucket`](force-delete.md). Either way, on a soft-delete bucket the deletion is recoverable for the retention window.
 
-Restoring a deleted *bucket* is not in this library yet; use the Tigris dashboard (Buckets → Deleted) in the meantime.
+## Recover a deleted bucket
+
+Deleted soft-delete buckets sit in the account's deleted list until their window ends; the name stays reserved meanwhile. Listing and restoring them are Tigris endpoints rather than S3 operations, so these helpers return plain dicts and raise `TigrisAPIError` on gateway errors.
+
+```python
+from tigris_boto3_ext import TigrisAPIError, list_deleted_buckets, restore_bucket
+
+# One page; continuation_token is None on the last page
+page = list_deleted_buckets(s3, max_buckets=50)
+for bucket in page["buckets"]:
+    print(bucket["name"], bucket["retention_days"], bucket["modified_at"])
+if page["continuation_token"]:
+    more = list_deleted_buckets(s3, max_buckets=50, continuation_token=page["continuation_token"])
+
+# Back to life, with the objects it held when it was deleted
+restore_bucket(s3, "my-bucket")
+```
+
+Each entry has `name`, `created_at` (first creation), `modified_at` (the last change — in practice the deletion) and `retention_days`; the full response body is under `raw`. `restore_bucket` raises `TigrisAPIError` with `code == "InvalidArgument"` (400) for a bucket that is not soft-deleted, and `"NoSuchBucket"` (404) for one that does not exist or whose window has expired.
 
 ## Notes
 
@@ -95,7 +113,7 @@ Restoring a deleted *bucket* is not in this library yet; use the Tigris dashboar
 - **Snapshot buckets.** The view returns only soft-deleted versions there too; live versions are never mixed in.
 - **Test cleanup.** A deleted soft-delete bucket stays in the deleted list until its window ends, so test suites that create such buckets should give them unique names.
 
-## Headers
+## Headers and endpoints
 
 | Operation | Header | Meaning |
 |---|---|---|
@@ -104,6 +122,8 @@ Restoring a deleted *bucket* is not in this library yet; use the Tigris dashboar
 | `DeleteObject` (with `VersionId`) | `X-Tigris-Soft-Delete: true` | Purge that soft-deleted version |
 | `RestoreObject` | `X-Tigris-Restore-Type: soft-delete` | Restore a soft-deleted object instead of thawing an archived one |
 | `RestoreObject` | `X-Tigris-Restore-Version: <version>` | Restore that version rather than the most recent |
+
+Deleted buckets use two Tigris endpoints outside the S3 API, sent as signed requests: `GET /?OnlyDeleted=true` (with `max-buckets` and `continuation-token`) and `POST /{bucket}?restore`.
 
 ## See also
 
