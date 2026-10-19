@@ -14,6 +14,7 @@ from tigris_boto3_ext import (
     force_delete_bucket,
     list_deleted_buckets,
     restore_bucket,
+    set_bucket_soft_delete,
     soft_delete_enabled,
 )
 from tigris_boto3_ext._internal import create_header_injector
@@ -313,3 +314,102 @@ class TestRestoreBucket:
     def test_rejects_empty_bucket_name(self, mock_s3_client):
         with pytest.raises(ValueError, match="bucket_name is required"):
             restore_bucket(mock_s3_client, "")
+
+
+PATCH_OK = {"Bucket": "my-bucket", "Update": "success"}
+
+
+class TestSetBucketSoftDelete:
+    @patch("tigris_boto3_ext.buckets.delete.signed_request")
+    def test_enables_with_a_window(self, mock_request, mock_s3_client):
+        mock_request.return_value = TigrisResponse(
+            status_code=200,
+            headers={"x-amz-request-id": "req-1"},
+            body=json.dumps(PATCH_OK).encode(),
+        )
+
+        result = set_bucket_soft_delete(
+            mock_s3_client, "my-bucket", True, retention_days=30
+        )
+
+        mock_request.assert_called_once_with(
+            mock_s3_client,
+            "PATCH",
+            "my-bucket",
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            body='{"soft_delete": {"enabled": true, "retention_days": 30}}',
+        )
+        assert result == {"name": "my-bucket", "request_id": "req-1", "raw": PATCH_OK}
+
+    @patch("tigris_boto3_ext.buckets.delete.signed_request")
+    def test_enables_with_the_default_window(self, mock_request, mock_s3_client):
+        mock_request.return_value = TigrisResponse(status_code=200)
+
+        result = set_bucket_soft_delete(mock_s3_client, "my-bucket", True)
+
+        assert mock_request.call_args[1]["body"] == '{"soft_delete": {"enabled": true}}'
+        assert result["raw"] == {}
+
+    @patch("tigris_boto3_ext.buckets.delete.signed_request")
+    def test_disables(self, mock_request, mock_s3_client):
+        mock_request.return_value = TigrisResponse(status_code=200)
+
+        set_bucket_soft_delete(mock_s3_client, "my-bucket", False)
+
+        assert (
+            mock_request.call_args[1]["body"] == '{"soft_delete": {"enabled": false}}'
+        )
+
+    @pytest.mark.parametrize(
+        ("kwargs", "error", "message"),
+        [
+            ({"enabled": True, "retention_days": 365}, ValueError, "between 7 and 90"),
+            ({"enabled": True, "retention_days": 6}, ValueError, "between 7 and 90"),
+            (
+                {"enabled": True, "retention_days": 7.5},
+                TypeError,
+                "whole number of days",
+            ),
+            (
+                {"enabled": True, "retention_days": "30"},
+                TypeError,
+                "whole number of days",
+            ),
+            (
+                {"enabled": False, "retention_days": 30},
+                ValueError,
+                "only applies when enabling",
+            ),
+            ({"enabled": 1}, TypeError, "enabled must be a bool"),
+            ({"enabled": "true"}, TypeError, "enabled must be a bool"),
+        ],
+    )
+    @patch("tigris_boto3_ext.buckets.delete.signed_request")
+    def test_rejects_bad_arguments_before_sending(
+        self, mock_request, mock_s3_client, kwargs, error, message
+    ):
+        with pytest.raises(error, match=message):
+            set_bucket_soft_delete(mock_s3_client, "my-bucket", **kwargs)
+
+        mock_request.assert_not_called()
+
+    @patch("tigris_boto3_ext.buckets.delete.signed_request")
+    def test_rejects_empty_bucket_name(self, mock_request, mock_s3_client):
+        with pytest.raises(ValueError, match="bucket_name is required"):
+            set_bucket_soft_delete(mock_s3_client, "", True)
+
+        mock_request.assert_not_called()
+
+    @patch("tigris_boto3_ext.buckets.delete.signed_request")
+    def test_gateway_errors_propagate(self, mock_request, mock_s3_client):
+        mock_request.side_effect = TigrisAPIError(
+            "Tigris request failed (HTTP 404): NoSuchBucket: gone",
+            status_code=404,
+            body="{}",
+            code="NoSuchBucket",
+        )
+
+        with pytest.raises(TigrisAPIError) as exc_info:
+            set_bucket_soft_delete(mock_s3_client, "missing", True)
+
+        assert exc_info.value.code == "NoSuchBucket"

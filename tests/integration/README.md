@@ -225,6 +225,7 @@ The integration tests cover, by feature:
 - ✅ Purging a soft-deleted version
 - ✅ Restoring a soft-deleted object, by version and most recent
 - ✅ Listing soft-deleted buckets with pagination, restoring one with its objects, and the rejections for a live or unknown bucket
+- ✅ Enabling, re-windowing and disabling soft delete on an existing bucket, with deletes becoming permanent once disabled
 
 **Force delete**
 - ✅ Force-deleting non-empty buckets, with and without soft delete

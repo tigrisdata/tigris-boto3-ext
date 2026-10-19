@@ -1,5 +1,6 @@
 """Bucket deletion: soft delete at creation, force delete, and recovering deleted buckets."""
 
+import json
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, cast
 
@@ -53,19 +54,8 @@ class TigrisSoftDeleteEnabled:
         self.client = s3_client
         self.retention_days = retention_days
 
-        if retention_days is None:
-            header_value = "true"
-        else:
-            if isinstance(retention_days, bool) or not isinstance(retention_days, int):
-                msg = f"retention_days must be a whole number of days, got {retention_days!r}"
-                raise TypeError(msg)
-            if not self.MIN_RETENTION_DAYS <= retention_days <= self.MAX_RETENTION_DAYS:
-                msg = (
-                    f"retention_days must be between {self.MIN_RETENTION_DAYS} "
-                    f"and {self.MAX_RETENTION_DAYS}, got {retention_days}"
-                )
-                raise ValueError(msg)
-            header_value = str(retention_days)
+        _validate_retention_days(retention_days)
+        header_value = "true" if retention_days is None else str(retention_days)
 
         self._injector = create_header_injector(
             s3_client,
@@ -311,3 +301,92 @@ def restore_bucket(s3_client: S3Client, bucket_name: str) -> dict[str, Any]:
 
     response = signed_request(s3_client, "POST", bucket_name, query="restore")
     return {"name": bucket_name, "request_id": response.headers.get("x-amz-request-id")}
+
+
+def set_bucket_soft_delete(
+    s3_client: S3Client,
+    bucket_name: str,
+    enabled: bool,
+    *,
+    retention_days: Optional[int] = None,
+) -> dict[str, Any]:
+    """
+    Turn soft delete on or off for an existing bucket, or change its window.
+
+    This reads Tigris's ``PATCH /{bucket}`` endpoint, which is not an S3
+    operation. Enabling makes future object and bucket deletions recoverable
+    for the retention window; calling it again with another ``retention_days``
+    changes the window; disabling makes future deletions permanent again.
+
+    The change reaches the bucket's own deletion at once, but object deletes
+    pick it up after a short, variable delay in either direction (observed from
+    immediately to tens of seconds). After enabling, do not rely on a delete
+    being recoverable until a throwaway delete shows up in
+    ``list_deleted_object_versions``. Versions that were already soft-deleted
+    stay listed until their own window ends, whatever the current setting.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        bucket_name: Name of the bucket
+        enabled: True to enable soft delete, False to disable it
+        retention_days: Retention window in whole days, 7 to 90, when enabling.
+            None uses the default 7-day window. Not allowed when disabling.
+
+    Returns:
+        {'name': bucket_name, 'request_id': str or None, 'raw': dict}, where
+        ``raw`` is the gateway's response body
+        (``{"Bucket": ..., "Update": "success"}``)
+
+    Raises:
+        TypeError: If ``enabled`` is not a bool or ``retention_days`` is not an int
+        ValueError: If ``bucket_name`` is empty, ``retention_days`` is outside
+            7 to 90, or ``retention_days`` is given while disabling
+        TigrisAPIError: If the gateway answers with an error, for example
+            ``NoSuchBucket`` (404)
+
+    Usage:
+        set_bucket_soft_delete(s3_client, 'my-bucket', True, retention_days=30)
+        set_bucket_soft_delete(s3_client, 'my-bucket', False)
+    """
+    if not bucket_name:
+        msg = "bucket_name is required"
+        raise ValueError(msg)
+    if not isinstance(enabled, bool):
+        msg = f"enabled must be a bool, got {enabled!r}"
+        raise TypeError(msg)
+    if not enabled and retention_days is not None:
+        msg = "retention_days only applies when enabling soft delete"
+        raise ValueError(msg)
+    _validate_retention_days(retention_days)
+
+    settings: dict[str, Any] = {"enabled": enabled}
+    if retention_days is not None:
+        settings["retention_days"] = retention_days
+
+    response = signed_request(
+        s3_client,
+        "PATCH",
+        bucket_name,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        body=json.dumps({"soft_delete": settings}),
+    )
+    raw = response.json() if response.body.strip() else {}
+    return {
+        "name": bucket_name,
+        "request_id": response.headers.get("x-amz-request-id"),
+        "raw": raw,
+    }
+
+
+def _validate_retention_days(retention_days: Optional[int]) -> None:
+    """Reject retention windows the gateway would reject, before any request is sent."""
+    if retention_days is None:
+        return
+    if isinstance(retention_days, bool) or not isinstance(retention_days, int):
+        msg = f"retention_days must be a whole number of days, got {retention_days!r}"
+        raise TypeError(msg)
+    low = TigrisSoftDeleteEnabled.MIN_RETENTION_DAYS
+    high = TigrisSoftDeleteEnabled.MAX_RETENTION_DAYS
+    if not low <= retention_days <= high:
+        msg = f"retention_days must be between {low} and {high}, got {retention_days}"
+        raise ValueError(msg)

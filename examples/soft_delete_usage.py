@@ -20,6 +20,7 @@ from tigris_boto3_ext import (
     purge_deleted_object,
     restore_bucket,
     restore_deleted_object,
+    set_bucket_soft_delete,
     soft_delete_enabled,
     with_soft_delete_view,
 )
@@ -65,6 +66,25 @@ def example_create_bucket_decorator():
 
     create_compliance_bucket(s3, "audit-logs")
     print("Created audit-logs with a 90-day retention window")
+
+
+def example_toggle_soft_delete():
+    """Turn soft delete on for a bucket that was created without it, then off again."""
+    print("\n=== set_bucket_soft_delete helper ===")
+
+    s3.create_bucket(Bucket="legacy-bucket")
+    set_bucket_soft_delete(s3, "legacy-bucket", True, retention_days=30)
+    # Object deletes pick the new setting up after a short delay; confirm with a
+    # throwaway delete before relying on it (see docs/soft-delete.md)
+    print("legacy-bucket: soft delete enabled with a 30-day window")
+
+    set_bucket_soft_delete(s3, "legacy-bucket", True, retention_days=14)
+    print("legacy-bucket: window shortened to 14 days")
+
+    # Disabling: deleting the bucket itself is permanent at once; object deletes
+    # pick the change up after a short delay (see docs/soft-delete.md)
+    set_bucket_soft_delete(s3, "legacy-bucket", False)
+    print("legacy-bucket: soft delete off; bucket deletion is permanent again")
 
 
 def example_retention_validation():
@@ -193,6 +213,7 @@ if __name__ == "__main__":
     example_create_bucket_helper()
     example_create_bucket_context_manager()
     example_create_bucket_decorator()
+    example_toggle_soft_delete()
     example_retention_validation()
     example_soft_delete_view()
     example_list_deleted_objects()
