@@ -12,7 +12,8 @@ from tigris_boto3_ext import (
     get_bucket_metadata,
     has_snapshot_enabled,
 )
-from tigris_boto3_ext._transport import TigrisResponse, parse_timestamp
+from tigris_boto3_ext._payload import parse_timestamp
+from tigris_boto3_ext._transport import TigrisResponse
 
 
 def _head_bucket_response(headers):

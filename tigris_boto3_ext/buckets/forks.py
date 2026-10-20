@@ -1,4 +1,4 @@
-"""Bucket forks: creating buckets that branch from another bucket or snapshot."""
+"""Bucket forks: creating buckets that branch from another bucket or snapshot, and listing them."""
 
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, cast
@@ -9,6 +9,8 @@ else:
     S3Client = object
 
 from tigris_boto3_ext._internal import create_header_injector
+from tigris_boto3_ext._payload import parse_listing_page
+from tigris_boto3_ext._transport import paging_params, signed_request
 
 F = TypeVar("F", bound=Callable[..., Any])
 """ Context Managers """
@@ -139,3 +141,58 @@ def create_fork(
     """
     with TigrisFork(s3_client, source_bucket, snapshot_version):
         return cast("dict[str, Any]", s3_client.create_bucket(Bucket=new_bucket_name))
+
+
+def list_forks(
+    s3_client: S3Client,
+    source_bucket: str,
+    *,
+    max_buckets: Optional[int] = None,
+    continuation_token: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    List the buckets forked from a bucket.
+
+    This reads Tigris's ``GET /`` listing with the ``X-Tigris-Fork`` header,
+    which is not an S3 operation, so the result is a plain dict. Unlike the
+    ``is_fork_parent`` flag of ``get_bucket_metadata``, this is the gateway
+    enumerating the children and is current as soon as a fork exists.
+
+    Args:
+        s3_client: boto3 S3 client instance
+        source_bucket: The bucket whose forks to list
+        max_buckets: Page size; the gateway default applies when None
+        continuation_token: ``continuation_token`` from the previous page
+
+    Returns:
+        {
+            'buckets': [{'name', 'created_at', 'fork_parents': [{'bucket', 'snapshot',
+                         'snapshot_name', 'forked_at', 'snapshot_created_at'}], ...}],
+            'continuation_token': str or None,
+            'raw': dict,
+        }
+        Entries have the shape of ``list_buckets`` with ``fork_parents`` and
+        ``is_fork_parent`` filled; ``created_at`` is when the fork was made.
+
+    Raises:
+        ValueError: If ``source_bucket`` is empty or ``max_buckets`` is invalid
+        TigrisAPIError: 403 ``AccessDenied`` when the source bucket does not
+            exist or is not yours; a bucket without forks returns an empty list
+
+    Usage:
+        for fork in list_forks(s3_client, 'production-data')['buckets']:
+            print(fork['name'], fork['fork_parents'][0]['snapshot'])
+    """
+    if not source_bucket:
+        msg = "source_bucket is required"
+        raise ValueError(msg)
+    response = signed_request(
+        s3_client,
+        "GET",
+        "",
+        query=paging_params(max_buckets, continuation_token),
+        headers={"Accept": "application/json", "X-Tigris-Fork": source_bucket},
+    )
+    page = parse_listing_page(response.json())
+    del page["owner"]  # the gateway sends an empty owner on fork listings
+    return page

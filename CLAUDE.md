@@ -43,12 +43,15 @@ tigris_boto3_ext/
 ├── __init__.py          # flat public API: re-exports everything below
 ├── _internal.py         # HeaderInjector, registry, _guard_lock (not public)
 ├── _transport.py        # signed_request to Tigris endpoints outside the S3 API, TigrisAPIError (only the error is public)
+├── _payload.py          # parsers for those endpoints' JSON: timestamps, ForkInfo, SoftDeleteInfo, listing entries
 ├── buckets/
 │   ├── info.py          # has_snapshot_enabled, get_bucket_info
 │   ├── create.py        # TigrisBucketOptions, with_bucket_options, create_bucket
 │   ├── delete.py        # TigrisSoftDeleteEnabled, soft_delete_enabled, create_soft_delete_bucket, force_delete_bucket, list_deleted_buckets, restore_bucket, set_bucket_soft_delete
 │   ├── snapshots.py     # TigrisSnapshotEnabled, TigrisSnapshot, snapshot_enabled, with_snapshot, create_snapshot_bucket, create_snapshot, list_snapshots, delete_snapshot, get_snapshot_version
-│   └── forks.py         # TigrisFork, forked_from, create_fork
+│   ├── forks.py         # TigrisFork, forked_from, create_fork, list_forks
+│   ├── listing.py       # list_buckets
+│   └── stats.py         # get_stats
 └── objects/
     ├── rename.py        # TigrisRename, with_rename, rename_object
     ├── snapshots.py     # get_object_from_snapshot, list_objects_from_snapshot, head_object_from_snapshot
@@ -56,7 +59,7 @@ tigris_boto3_ext/
     └── bundle.py        # BundleError, BundleResponse, bundle_objects
 ```
 
-Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Shared infrastructure stays in `_internal.py` (header injection) and `_transport.py` (signed requests to non-S3 endpoints). A helper that calls one of those endpoints still lives in the resource module it is about (`get_bucket_metadata` in `buckets/info.py`).
+Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Shared infrastructure stays in `_internal.py` (header injection), `_transport.py` (signed requests to non-S3 endpoints, paging parameters) and `_payload.py` (parsers for their JSON responses; a parser used by more than one module goes here, never into a sibling resource module). A helper that calls one of those endpoints still lives in the resource module it is about (`get_bucket_metadata` in `buckets/info.py`).
 
 ### Feature footprint
 
@@ -77,7 +80,7 @@ Everything except the bundle API works by injecting custom `X-Tigris-*` headers 
 
 ### Tigris endpoints outside the S3 API (direct HTTP)
 
-Some Tigris features are HTTP endpoints rather than S3 operations (`GET /{bucket}?metadata`, `POST /{bucket}?bundle`, `GET /?OnlyDeleted=true`, `POST /{bucket}?restore`, `PATCH /{bucket}` with a JSON body for settings such as `soft_delete`, and the rest of the bucket-settings family still to come). `parse_timestamp` in the same module handles the gateway's RFC 3339 timestamps (nanoseconds, `Z`). `_transport.signed_request(s3_client, method, path, query=, headers=, body=, stream=)` builds the URL from the client's endpoint, signs with SigV4 using the client's credentials and region (`"auto"` by default), sends through the client's own botocore HTTP session (`client._endpoint.http_session`, so proxies, CA bundle, certificates and timeouts match its S3 calls), and returns a `TigrisResponse` (`status_code`, lower-cased `headers`, `body`, `.json()`), or the raw urllib3 response with `stream=True`. Any 4xx/5xx raises `TigrisAPIError(message, status_code, body, code, request_id)`; the error document is parsed from Tigris JSON (`{Code, Message, RequestId}`, returned when `Accept: application/json` is sent) or S3 XML, falling back to the raw body. `BundleError` subclasses it. Unit tests patch `tigris_boto3_ext._transport.SigV4Auth` and set `mock_s3_client._endpoint.http_session.send.return_value` to an AWSResponse-like object (`status_code`, `headers`, `content`, `raw`), or patch `signed_request` where a feature module imports it.
+Some Tigris features are HTTP endpoints rather than S3 operations (`GET /{bucket}?metadata`, `POST /{bucket}?bundle`, `GET /?OnlyDeleted=true`, `POST /{bucket}?restore`, `PATCH /{bucket}` with a JSON body for settings such as `soft_delete`, and the rest of the bucket-settings family still to come). `_payload.py` holds the response parsers: `parse_timestamp` for the gateway's RFC 3339 timestamps (nanoseconds, `Z`), `parse_fork_info`, `parse_soft_delete`, `parse_bucket_entry` and `parse_listing_page` for the `GET /` listings. The listing's `Stats` are per response, not per account — `get_stats` sums across pages. `_transport.signed_request(s3_client, method, path, query=, headers=, body=, stream=)` builds the URL from the client's endpoint, signs with SigV4 using the client's credentials and region (`"auto"` by default), sends through the client's own botocore HTTP session (`client._endpoint.http_session`, so proxies, CA bundle, certificates and timeouts match its S3 calls), and returns a `TigrisResponse` (`status_code`, lower-cased `headers`, `body`, `.json()`), or the raw urllib3 response with `stream=True`. Any 4xx/5xx raises `TigrisAPIError(message, status_code, body, code, request_id)`; the error document is parsed from Tigris JSON (`{Code, Message, RequestId}`, returned when `Accept: application/json` is sent) or S3 XML, falling back to the raw body. `BundleError` subclasses it. Unit tests patch `tigris_boto3_ext._transport.SigV4Auth` and set `mock_s3_client._endpoint.http_session.send.return_value` to an AWSResponse-like object (`status_code`, `headers`, `content`, `raw`), or patch `signed_request` where a feature module imports it.
 
 ### Bundle API (direct HTTP)
 

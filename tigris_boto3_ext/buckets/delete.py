@@ -14,7 +14,8 @@ from tigris_boto3_ext._internal import (
     create_header_injector,
     has_active_injector,
 )
-from tigris_boto3_ext._transport import parse_timestamp, signed_request
+from tigris_boto3_ext._payload import listing_entries, parse_timestamp
+from tigris_boto3_ext._transport import paging_params, signed_request
 
 F = TypeVar("F", bound=Callable[..., Any])
 """ Context Managers """
@@ -234,25 +235,13 @@ def list_deleted_buckets(
             print(bucket['name'], bucket['retention_days'])
     """
     query: dict[str, Optional[str]] = {"OnlyDeleted": "true"}
-    if max_buckets is not None:
-        if (
-            isinstance(max_buckets, bool)
-            or not isinstance(max_buckets, int)
-            or max_buckets < 1
-        ):
-            msg = "max_buckets must be a positive integer"
-            raise ValueError(msg)
-        query["max-buckets"] = str(max_buckets)
-    if continuation_token:
-        query["continuation-token"] = continuation_token
+    query.update(paging_params(max_buckets, continuation_token))
 
     response = signed_request(
         s3_client, "GET", "", query=query, headers={"Accept": "application/json"}
     )
     raw = response.json()
-    entries = (raw.get("Buckets") or {}).get("Bucket") or []
-    if isinstance(entries, dict):  # a single entry can arrive unwrapped
-        entries = [entries]
+    entries = listing_entries(raw)
 
     return {
         "buckets": [
