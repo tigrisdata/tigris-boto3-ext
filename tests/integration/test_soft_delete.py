@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 
 from tigris_boto3_ext import (
     TigrisAPIError,
+    get_bucket_metadata,
     TigrisSnapshotEnabled,
     TigrisSoftDeleteEnabled,
     create_soft_delete_bucket,
@@ -19,6 +20,7 @@ from tigris_boto3_ext import (
     purge_deleted_object,
     restore_bucket,
     restore_deleted_object,
+    set_bucket_soft_delete,
 )
 
 from .conftest import bucket_exists, generate_bucket_name
@@ -322,6 +324,83 @@ class TestDeletedBuckets:
 
         with pytest.raises(TigrisAPIError) as exc_info:
             restore_bucket(s3_client, bucket_name)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.code == "NoSuchBucket"
+
+
+class TestSetBucketSoftDelete:
+    """Test turning soft delete on and off after creation."""
+
+    def test_enable_change_and_disable(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """A regular bucket gains a window, changes it, keeps deletes recoverable, then loses it."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "sdpatch-")
+        cleanup_soft_delete_buckets.append(bucket_name)
+        s3_client.create_bucket(Bucket=bucket_name)
+        assert get_bucket_metadata(s3_client, bucket_name)["soft_delete"]["enabled"] is False
+
+        result = set_bucket_soft_delete(s3_client, bucket_name, True, retention_days=30)
+        assert result["name"] == bucket_name
+        assert result["raw"].get("Update") == "success"
+        assert get_bucket_metadata(s3_client, bucket_name)["soft_delete"] == {
+            "enabled": True,
+            "retention_days": 30,
+        }
+
+        set_bucket_soft_delete(s3_client, bucket_name, True)  # default window
+        assert get_bucket_metadata(s3_client, bucket_name)["soft_delete"] == {
+            "enabled": True,
+            "retention_days": 7,
+        }
+
+        # Object deletes pick the new setting up after a short, variable delay
+        # (see docs/soft-delete.md): keep deleting throwaway keys until one lands
+        # in the soft-delete view.
+        deadline = time.time() + 60
+        soft_deleted = []
+        while not soft_deleted and time.time() < deadline:
+            key = f"doomed-{int(time.time() * 1000)}.txt"
+            s3_client.put_object(Bucket=bucket_name, Key=key, Body=b"x")
+            s3_client.delete_object(Bucket=bucket_name, Key=key)
+            soft_deleted = [v["Key"] for v in _soft_deleted_versions(s3_client, bucket_name)]
+            if not soft_deleted:
+                time.sleep(1)
+        assert soft_deleted, "no delete became recoverable within 60s of enabling"
+
+        set_bucket_soft_delete(s3_client, bucket_name, False)
+        assert get_bucket_metadata(s3_client, bucket_name)["soft_delete"]["enabled"] is False
+
+        # What was already soft-deleted stays recoverable after disabling. Whether
+        # a *new* object delete is permanent yet is not asserted: the gateway
+        # answered both ways within seconds in repeated probes, while bucket
+        # deletion is reliably permanent (next test).
+        still_listed = [v["Key"] for v in _soft_deleted_versions(s3_client, bucket_name)]
+        assert set(still_listed) >= set(soft_deleted)
+
+    def test_disabled_bucket_deletes_permanently(
+        self, s3_client, test_bucket_prefix, cleanup_soft_delete_buckets
+    ):
+        """After disabling, deleting the bucket does not put it in the deleted list."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "sdpatch-off-")
+        cleanup_soft_delete_buckets.append(bucket_name)
+        create_soft_delete_bucket(s3_client, bucket_name, retention_days=7)
+        s3_client.put_object(Bucket=bucket_name, Key="gone.txt", Body=b"x")
+
+        set_bucket_soft_delete(s3_client, bucket_name, False)
+        force_delete_bucket(s3_client, bucket_name)
+        cleanup_soft_delete_buckets.remove(bucket_name)
+
+        _assert_bucket_gone(s3_client, bucket_name)
+        assert _find_deleted_bucket(s3_client, bucket_name, timeout=5) is None
+
+    def test_unknown_bucket_raises(self, s3_client, test_bucket_prefix):
+        """The gateway's NoSuchBucket comes through as TigrisAPIError."""
+        bucket_name = generate_bucket_name(test_bucket_prefix, "sdpatch-missing-")
+
+        with pytest.raises(TigrisAPIError) as exc_info:
+            set_bucket_soft_delete(s3_client, bucket_name, True)
 
         assert exc_info.value.status_code == 404
         assert exc_info.value.code == "NoSuchBucket"

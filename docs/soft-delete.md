@@ -9,7 +9,7 @@ All names below are imported from `tigris_boto3_ext`.
 
 ## Enable soft delete on a bucket
 
-Soft delete is switched on when the bucket is created. `retention_days` is a whole number from 7 to 90; leave it out for the default 7-day window. Out-of-range values raise `ValueError`, non-integers raise `TypeError`, both before any request is sent.
+Soft delete can be switched on when the bucket is created, or later with `set_bucket_soft_delete`. `retention_days` is a whole number from 7 to 90; leave it out for the default 7-day window. Out-of-range values raise `ValueError`, non-integers raise `TypeError`, both before any request is sent.
 
 ```python
 from tigris_boto3_ext import TigrisSoftDeleteEnabled, create_soft_delete_bucket, soft_delete_enabled
@@ -28,6 +28,21 @@ with TigrisSoftDeleteEnabled(s3, retention_days=14):
 def create_compliance_bucket(s3_client, name):
     return s3_client.create_bucket(Bucket=name)
 ```
+
+## Turn it on or off later
+
+`set_bucket_soft_delete` changes an existing bucket. It calls Tigris's `PATCH /{bucket}` endpoint (not an S3 operation), so it returns a plain dict and raises `TigrisAPIError` on gateway errors.
+
+```python
+from tigris_boto3_ext import set_bucket_soft_delete
+
+set_bucket_soft_delete(s3, "my-bucket", True, retention_days=30)   # enable, 30 days
+set_bucket_soft_delete(s3, "my-bucket", True)                      # enable with the default 7 days
+set_bucket_soft_delete(s3, "my-bucket", True, retention_days=14)   # change the window
+set_bucket_soft_delete(s3, "my-bucket", False)                     # disable
+```
+
+**The setting reaches object deletes with a delay.** The bucket's own deletion reflects a change at once — a force delete on a bucket you just disabled does not go to the deleted list — but object deletes pick the new setting up after a short, variable delay in either direction: in our tests, a delete made seconds after *enabling* was sometimes permanent, and one made seconds after *disabling* was sometimes still soft-deleted. After enabling, do a throwaway delete and confirm it appears in `list_deleted_object_versions` before relying on recovery. Versions that were already soft-deleted stay in the view until their own window ends, whatever the current setting. `retention_days` is validated as 7–90 before any request is sent, and may not be combined with `enabled=False`.
 
 ## See what is recoverable
 
@@ -123,7 +138,7 @@ Each entry has `name`, `created_at` (first creation), `modified_at` (the last ch
 | `RestoreObject` | `X-Tigris-Restore-Type: soft-delete` | Restore a soft-deleted object instead of thawing an archived one |
 | `RestoreObject` | `X-Tigris-Restore-Version: <version>` | Restore that version rather than the most recent |
 
-Deleted buckets use two Tigris endpoints outside the S3 API, sent as signed requests: `GET /?OnlyDeleted=true` (with `max-buckets` and `continuation-token`) and `POST /{bucket}?restore`.
+Three Tigris endpoints outside the S3 API are used, as signed requests: `PATCH /{bucket}` with `{"soft_delete": {"enabled": true|false, "retention_days": n}}` to change the setting, `GET /?OnlyDeleted=true` (with `max-buckets` and `continuation-token`) to list deleted buckets, and `POST /{bucket}?restore` to restore one.
 
 ## See also
 

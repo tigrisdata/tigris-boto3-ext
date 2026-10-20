@@ -14,6 +14,7 @@ from .buckets.delete import (
     force_delete_bucket,
     list_deleted_buckets,
     restore_bucket,
+    set_bucket_soft_delete,
     soft_delete_enabled,
 )
 from .buckets.forks import TigrisFork, create_fork, forked_from
@@ -55,7 +56,7 @@ from .objects.snapshots import (
     list_objects_from_snapshot,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     # Bucket info
@@ -75,6 +76,7 @@ __all__ = [
     "force_delete_bucket",
     "list_deleted_buckets",
     "restore_bucket",
+    "set_bucket_soft_delete",
     # Bucket snapshots
     "TigrisSnapshotEnabled",
     "TigrisSnapshot",
