@@ -5,7 +5,6 @@ import html
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import quote
@@ -223,23 +222,20 @@ def _optional_str(value: Any) -> Optional[str]:
     return str(value) if value not in (None, "") else None
 
 
-def parse_timestamp(value: Any) -> Optional[datetime]:
-    """Parse a Tigris RFC 3339 timestamp, which may carry nanoseconds and a ``Z``.
-
-    Returns None for missing or unparseable values.
-    """
-    if not isinstance(value, str) or not value:
-        return None
-    text = value[:-1] + "+00:00" if value.endswith("Z") else value
-    if "." in text:
-        head, _, rest = text.partition(".")
-        digits = ""
-        while rest and rest[0].isdigit():
-            digits += rest[0]
-            rest = rest[1:]
-        text = f"{head}.{digits[:6].ljust(6, '0')}{rest}"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+def paging_params(
+    max_buckets: Optional[int], continuation_token: Optional[str]
+) -> dict[str, Optional[str]]:
+    """Query parameters for a paged ``GET /`` listing, validating the page size."""
+    query: dict[str, Optional[str]] = {}
+    if max_buckets is not None:
+        if (
+            isinstance(max_buckets, bool)
+            or not isinstance(max_buckets, int)
+            or max_buckets < 1
+        ):
+            msg = "max_buckets must be a positive integer"
+            raise ValueError(msg)
+        query["max-buckets"] = str(max_buckets)
+    if continuation_token:
+        query["continuation-token"] = continuation_token
+    return query

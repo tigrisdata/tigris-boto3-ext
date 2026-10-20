@@ -57,12 +57,28 @@ info["fork_source_bucket"]    # "production-data"
 info["fork_source_snapshot"]  # the snapshot version the fork was taken from
 ```
 
+## List the forks of a bucket
+
+`list_forks` asks the gateway for a bucket's children. Unlike `is_fork_parent` in [bucket info](bucket-info.md), which is refreshed asynchronously, this is the gateway enumerating the forks and is current as soon as a fork exists. It is a Tigris endpoint rather than an S3 operation, so it returns a plain dict and raises `TigrisAPIError` on errors.
+
+```python
+from tigris_boto3_ext import list_forks
+
+page = list_forks(s3, "production-data")
+for fork in page["buckets"]:
+    lineage = fork["fork_parents"][0]
+    print(fork["name"], "forked at", fork["created_at"], "from snapshot", lineage["snapshot"], lineage["snapshot_name"])
+```
+
+Entries have the shape of [`list_buckets`](listing.md) with the fork fields filled. A bucket without forks gives an empty list; a source bucket that does not exist or is not yours is a `TigrisAPIError` with `code == "AccessDenied"` (403). Pages with `max_buckets` / `continuation_token` like the other listings.
+
 ## Headers
 
 | Operation | Header | Meaning |
 |---|---|---|
 | `CreateBucket` | `X-Tigris-Fork-Source-Bucket: <bucket>` | Create the bucket as a fork of `<bucket>` |
 | `CreateBucket` | `X-Tigris-Fork-Source-Bucket-Snapshot: <version>` | Fork from that snapshot instead of the current state |
+| `GET /` (Tigris listing) | `X-Tigris-Fork: <bucket>` | List the forks of that bucket |
 
 ## See also
 

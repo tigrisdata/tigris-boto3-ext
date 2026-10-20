@@ -7,7 +7,12 @@ if TYPE_CHECKING:
 else:
     S3Client = object
 
-from tigris_boto3_ext._transport import parse_timestamp, signed_request
+from tigris_boto3_ext._payload import (
+    parse_fork_info,
+    parse_soft_delete,
+    parse_timestamp,
+)
+from tigris_boto3_ext._transport import signed_request
 
 
 def has_snapshot_enabled(s3_client: S3Client, bucket_name: str) -> bool:
@@ -159,8 +164,7 @@ def get_bucket_metadata(
     )
     raw = response.json()
 
-    fork_info = raw.get("ForkInfo") or {}
-    soft_delete = raw.get("soft_delete") or {}
+    fork = parse_fork_info(raw.get("ForkInfo"))
     regions = raw.get("object_regions") or ""
 
     return {
@@ -169,14 +173,9 @@ def get_bucket_metadata(
         "snapshot_enabled": raw.get("type") == 1,
         "storage_class": raw.get("storage_class"),
         "regions": [region.strip() for region in regions.split(",") if region.strip()],
-        "is_fork_parent": bool(fork_info.get("HasChildren", False)),
-        "fork_parents": [
-            _parse_fork_parent(parent) for parent in fork_info.get("Parents") or []
-        ],
-        "soft_delete": {
-            "enabled": bool(soft_delete.get("enabled", False)),
-            "retention_days": soft_delete.get("retention_days"),
-        },
+        "is_fork_parent": fork["is_fork_parent"],
+        "fork_parents": fork["fork_parents"],
+        "soft_delete": parse_soft_delete(raw.get("soft_delete")),
         "allow_object_acl": bool(
             (raw.get("acl_settings") or {}).get("allow_object_acl", False)
         ),
@@ -196,19 +195,3 @@ def get_bucket_metadata(
 def _is_snapshot_enabled_header_set(headers: dict[str, Any]) -> bool:
     """Check if the snapshot enabled header is set in the response headers."""
     return str(headers.get("x-tigris-enable-snapshot", "")).lower() == "true"
-
-
-def _parse_fork_parent(parent: dict[str, Any]) -> dict[str, Any]:
-    """Normalize one ForkInfo.Parents entry.
-
-    The gateway encodes a named snapshot as ``<version>; name=<name>``, the same
-    pseudo-bucket form ``list_snapshots`` returns; an unnamed one is bare.
-    """
-    version, _, name = str(parent.get("Snapshot") or "").partition("; name=")
-    return {
-        "bucket": parent.get("BucketName"),
-        "snapshot": version or None,
-        "snapshot_name": name or None,
-        "forked_at": parse_timestamp(parent.get("ForkCreatedAt")),
-        "snapshot_created_at": parse_timestamp(parent.get("SnapshotCreatedAt")),
-    }

@@ -61,6 +61,8 @@ uv run pytest tests/integration/test_create_bucket.py  # create bucket options
 uv run pytest tests/integration/test_snapshots.py      # snapshots, including deletion
 uv run pytest tests/integration/test_forks.py          # forks
 uv run pytest tests/integration/test_bucket_info.py    # bucket info
+uv run pytest tests/integration/test_listing.py        # bucket listing, fork listing
+uv run pytest tests/integration/test_stats.py          # account stats
 uv run pytest tests/integration/test_rename.py         # object rename
 uv run pytest tests/integration/test_soft_delete.py    # soft delete and force delete
 uv run pytest tests/integration/test_bundle.py         # Bundle API
@@ -106,6 +108,8 @@ uv run pytest tests/integration/ -vv -s
 - **`test_snapshots.py`**: Tests snapshot creation, listing, deletion, and data access
 - **`test_forks.py`**: Tests bucket forking and data isolation
 - **`test_bucket_info.py`**: Tests `has_snapshot_enabled` and `get_bucket_info` on snapshot-enabled, regular, forked, and fork-parent buckets
+- **`test_listing.py`**: Tests `list_buckets` with every detail flag, filters and paging, and `list_forks` lineage and errors
+- **`test_stats.py`**: Tests `get_stats` against a single-bucket page
 - **`test_rename.py`**: Tests in-place rename via the helper, context manager, and decorator, including nested and special-character keys
 - **`test_soft_delete.py`**: Tests creating soft-delete buckets, the soft-delete view, listing, purging and restoring soft-deleted objects, and force-deleting non-empty buckets
 - **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
@@ -211,6 +215,13 @@ The integration tests cover, by feature:
 - ✅ Creating forks from existing buckets
 - ✅ Forking from specific snapshot versions
 - ✅ Data isolation between forks and sources
+
+**Bucket listing**
+- ✅ Type, visibility, regions, fork lineage and owner per entry; unrequested fields None; only-forks filter; paging
+- ✅ Forks of a parent with lineage, empty list for a non-parent, AccessDenied for an unknown source
+
+**Storage stats**
+- ✅ Account stats summed across pages, bounded by a single-bucket page
 
 **Bucket info**
 - ✅ Snapshot-enabled flag and fork source metadata
