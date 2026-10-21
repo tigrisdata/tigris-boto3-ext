@@ -1,29 +1,25 @@
-"""Parsers for the JSON payloads of Tigris endpoints outside the S3 API."""
+"""Parsers for the JSON payloads of the bucket endpoints outside the S3 API."""
 
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from botocore.utils import parse_timestamp as _parse_timestamp
+
 
 def parse_timestamp(value: Any) -> Optional[datetime]:
-    """Parse a Tigris RFC 3339 timestamp, which may carry nanoseconds and a ``Z``.
+    """Parse a gateway timestamp into an aware UTC datetime.
 
     Returns None for missing or unparseable values.
     """
     if not isinstance(value, str) or not value:
         return None
-    text = value[:-1] + "+00:00" if value.endswith("Z") else value
-    if "." in text:
-        head, _, rest = text.partition(".")
-        digits = ""
-        while rest and rest[0].isdigit():
-            digits += rest[0]
-            rest = rest[1:]
-        text = f"{head}.{digits[:6].ljust(6, '0')}{rest}"
     try:
-        parsed = datetime.fromisoformat(text)
+        parsed = _parse_timestamp(value)
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def parse_fork_info(fork_info: Optional[dict[str, Any]]) -> dict[str, Any]:

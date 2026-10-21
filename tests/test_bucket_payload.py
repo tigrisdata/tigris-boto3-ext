@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from tigris_boto3_ext._payload import (
+from tigris_boto3_ext.buckets._payload import (
     listing_entries,
     parse_bucket_entry,
     parse_fork_info,

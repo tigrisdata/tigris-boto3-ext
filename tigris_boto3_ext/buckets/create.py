@@ -10,11 +10,10 @@ else:
     S3Client = object
 
 from tigris_boto3_ext._internal import create_header_injector
+from tigris_boto3_ext.buckets import _validate
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-_STORAGE_CLASSES = ("STANDARD", "STANDARD_IA", "GLACIER", "GLACIER_IR")
-_ACCESS_VALUES = ("public", "private")
 """ Context Managers """
 
 
@@ -174,9 +173,8 @@ def create_bucket(
     if not bucket_name:
         msg = "bucket_name is required"
         raise ValueError(msg)
-    if access is not None and access not in _ACCESS_VALUES:
-        msg = f"access must be 'public' or 'private', got {access!r}"
-        raise ValueError(msg)
+    if access is not None:
+        _validate.access(access)
     if access is not None and "ACL" in kwargs:
         msg = "pass either access or ACL, not both"
         raise ValueError(msg)
@@ -206,26 +204,13 @@ def _bucket_option_headers(
     headers: dict[str, str] = {}
 
     if default_storage_class is not None:
-        if default_storage_class not in _STORAGE_CLASSES:
-            msg = (
-                f"default_storage_class must be one of {', '.join(_STORAGE_CLASSES)}, "
-                f"got {default_storage_class!r}"
-            )
-            raise ValueError(msg)
-        headers["X-Amz-Storage-Class"] = default_storage_class
+        headers["X-Amz-Storage-Class"] = _validate.storage_class(default_storage_class)
 
     if regions is not None:
-        names = [regions] if isinstance(regions, str) else list(regions)
-        cleaned = [name.strip() for name in names if name and name.strip()]
-        if not cleaned:
-            msg = "regions must name at least one region"
-            raise ValueError(msg)
-        headers["X-Tigris-Regions"] = ",".join(cleaned)
+        headers["X-Tigris-Regions"] = _validate.regions(regions)
 
     if public_list_objects is not None:
-        if not isinstance(public_list_objects, bool):
-            msg = "public_list_objects must be a bool"
-            raise TypeError(msg)
+        _validate.flag(public_list_objects, "public_list_objects")
         headers["X-Amz-Acl-Public-List-Objects-Enabled"] = (
             "true" if public_list_objects else "false"
         )

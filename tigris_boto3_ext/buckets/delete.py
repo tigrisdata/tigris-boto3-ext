@@ -14,8 +14,8 @@ from tigris_boto3_ext._internal import (
     create_header_injector,
     has_active_injector,
 )
-from tigris_boto3_ext._payload import listing_entries, parse_timestamp
 from tigris_boto3_ext._transport import paging_params, signed_request
+from tigris_boto3_ext.buckets._payload import listing_entries, parse_timestamp
 
 F = TypeVar("F", bound=Callable[..., Any])
 """ Context Managers """

@@ -9,8 +9,8 @@ else:
     S3Client = object
 
 from tigris_boto3_ext._internal import create_header_injector
-from tigris_boto3_ext._payload import parse_listing_page
 from tigris_boto3_ext._transport import paging_params, signed_request
+from tigris_boto3_ext.buckets._payload import parse_listing_page
 
 F = TypeVar("F", bound=Callable[..., Any])
 """ Context Managers """
