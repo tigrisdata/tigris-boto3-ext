@@ -34,6 +34,7 @@ class TestUpdateBucket:
             cache_control="max-age=60",
             custom_domain="files.example.com",
             nosniff=True,
+            snapshot_enabled=True,
         )
 
         mock_request.assert_called_once()
@@ -47,6 +48,7 @@ class TestUpdateBucket:
             "cache_control": "max-age=60",
             "website": {"domain_name": "files.example.com"},
             "additional_http_headers": {"X-Content-Type-Options": "nosniff"},
+            "type": 1,
         }
         assert result == {"name": "my-bucket", "request_id": "req-1", "raw": PATCH_OK}
 
@@ -87,6 +89,7 @@ class TestUpdateBucket:
             ({"regions": "usa"}, {"object_regions": "usa"}),
             ({"cache_control": ""}, {"cache_control": ""}),
             ({"nosniff": False}, {"additional_http_headers": None}),
+            ({"snapshot_enabled": False}, {"type": 0}),
         ],
     )
     @patch("tigris_boto3_ext.buckets.settings.signed_request")
@@ -122,6 +125,7 @@ class TestUpdateBucket:
             ),
             ({"allow_object_acl": 1}, TypeError, "allow_object_acl must be a bool"),
             ({"nosniff": "yes"}, TypeError, "nosniff must be a bool"),
+            ({"snapshot_enabled": 1}, TypeError, "snapshot_enabled must be a bool"),
         ],
     )
     @patch("tigris_boto3_ext.buckets.settings.signed_request")

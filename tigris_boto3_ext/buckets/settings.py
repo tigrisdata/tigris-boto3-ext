@@ -25,6 +25,7 @@ def update_bucket(
     cache_control: Optional[str] = None,
     custom_domain: Optional[str] = None,
     nosniff: Optional[bool] = None,
+    snapshot_enabled: Optional[bool] = None,
 ) -> dict[str, Any]:
     """
     Change a bucket's settings in one call. Only the settings you pass are sent.
@@ -32,7 +33,7 @@ def update_bucket(
     This reads Tigris's ``PATCH /{bucket}`` endpoint, which is not an S3
     operation, so the result is a plain dict. Read settings back with
     ``get_bucket_metadata`` (storage class, regions, cache control, custom
-    domain, object ACL, headers), ``get_bucket_acl`` or
+    domain, object ACL, headers, snapshot type), ``get_bucket_acl`` or
     ``list_buckets(include_visibility=True)`` (access). The public domain
     follows access changes asynchronously, usually within seconds.
 
@@ -51,6 +52,12 @@ def update_bucket(
         custom_domain: Domain the bucket is served from. The domain's CNAME must
             already point at Tigris, or the gateway rejects it
         nosniff: Whether objects are served with ``X-Content-Type-Options: nosniff``
+        snapshot_enabled: ``True`` makes this a snapshot bucket, ``False`` a
+            regular one. The gateway refuses to disable snapshots on a fork or
+            a bucket with forks, and to enable them on a bucket with lifecycle
+            or expiration rules. Existing snapshots are kept while disabled and
+            usable again once re-enabled. HeadBucket, metadata and listings
+            show the new type at once; object operations follow within seconds
 
     Returns:
         {'name': bucket_name, 'request_id': str or None, 'raw': dict}
@@ -60,12 +67,13 @@ def update_bucket(
             ``default_storage_class`` has an unknown value
         TypeError: If a boolean setting is not a bool
         TigrisAPIError: If the gateway answers with an error, for example
-            ``NoSuchBucket`` (404), an unknown region or an unverified custom
-            domain (400 ``InvalidArgument``)
+            ``NoSuchBucket`` (404), an unknown region, an unverified custom
+            domain or a refused snapshot type change (400 ``InvalidArgument``)
 
     Usage:
         update_bucket(s3_client, 'assets', access='public', cache_control='max-age=3600')
         update_bucket(s3_client, 'archive', default_storage_class='STANDARD_IA', regions='iad')
+        update_bucket(s3_client, 'production-data', snapshot_enabled=True)
     """
     if not bucket_name:
         msg = "bucket_name is required"
@@ -98,6 +106,9 @@ def update_bucket(
         body["additional_http_headers"] = (
             {"X-Content-Type-Options": "nosniff"} if nosniff else None
         )
+    if snapshot_enabled is not None:
+        _validate.flag(snapshot_enabled, "snapshot_enabled")
+        body["type"] = 1 if snapshot_enabled else 0
 
     if not body and not headers:
         msg = "nothing to update: pass at least one setting"
