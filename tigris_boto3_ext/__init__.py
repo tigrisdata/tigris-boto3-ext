@@ -20,6 +20,7 @@ from .buckets.delete import (
 from .buckets.forks import TigrisFork, create_fork, forked_from, list_forks
 from .buckets.info import get_bucket_info, get_bucket_metadata, has_snapshot_enabled
 from .buckets.listing import list_buckets
+from .buckets.notifications import set_bucket_notifications
 from .buckets.settings import update_bucket
 from .buckets.snapshots import (
     TigrisSnapshot,
@@ -99,6 +100,8 @@ __all__ = [
     "list_buckets",
     # Bucket settings
     "update_bucket",
+    # Object notifications
+    "set_bucket_notifications",
     # Storage stats
     "get_stats",
     # Object rename

@@ -55,7 +55,7 @@ sized["size"]              # {"objects": 3, "bytes": 3072, "objects_all_versions
 
 The size values are server-side estimates that are updated asynchronously; right after writes they can trail by a few seconds, so treat them as approximate rather than as an inventory. `fork_parents` on a fork is recorded with the fork itself; `is_fork_parent` on the source bucket is refreshed asynchronously and can lag a new fork, so read the child's `fork_parents` when you need the lineage right away.
 
-Also present: `name`, `allow_object_acl`, `cache_control`, `custom_domain`. Settings families that have no read helper of their own yet — lifecycle rules, CORS, notifications, shadow bucket, shares — are available under `info["raw"]`, the full response body in its wire shape.
+Also present: `name`, `allow_object_acl`, `cache_control`, `custom_domain` and `notifications` (`{"enabled", "url", "filter", "auth"}`, see [object notifications](notifications.md)). [CORS](cors.md) and [lifecycle rules](lifecycle.md) have their own boto3 read calls; they, the shadow bucket and shares are also available under `info["raw"]`, the full response body in its wire shape.
 
 A gateway error raises `TigrisAPIError`, with `status_code`, `code` (such as `NoSuchBucket`), `message` and `request_id`:
 

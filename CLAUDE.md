@@ -49,6 +49,7 @@ tigris_boto3_ext/
 │   ├── info.py          # has_snapshot_enabled, get_bucket_info
 │   ├── create.py        # TigrisBucketOptions, with_bucket_options, create_bucket
 │   ├── settings.py      # update_bucket
+│   ├── notifications.py # set_bucket_notifications
 │   ├── delete.py        # TigrisSoftDeleteEnabled, soft_delete_enabled, create_soft_delete_bucket, force_delete_bucket, list_deleted_buckets, restore_bucket, set_bucket_soft_delete
 │   ├── snapshots.py     # TigrisSnapshotEnabled, TigrisSnapshot, snapshot_enabled, with_snapshot, create_snapshot_bucket, create_snapshot, list_snapshots, delete_snapshot, get_snapshot_version
 │   ├── forks.py         # TigrisFork, forked_from, create_fork, list_forks
@@ -73,6 +74,8 @@ Code is grouped by resource; docs and examples are grouped by feature, because u
 4. a docs page, `docs/<feature>.md`: what the feature is with a link to the Tigris docs, the helpers, context manager and decorator with short examples, a Headers table, caveats
 5. a runnable example, `examples/<feature>_usage.py`, self-contained (creates what it uses)
 6. one row in the README "Features" table
+
+A Tigris feature that boto3 already covers (CORS and lifecycle rules work through the standard S3 calls) gets no wrapper. It gets a docs page and a README row only when Tigris constrains the S3 behaviour, and the page lists those constraints and the `raw` read-back, nothing else.
 
 The README is the front door only: install, quick start, the feature table, the three usage patterns explained once, how it works, development. Feature details go in the feature's page, not the README.
 
