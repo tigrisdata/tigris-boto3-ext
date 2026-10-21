@@ -58,6 +58,7 @@ One file per feature, matching the pages under `docs/`:
 
 ```bash
 uv run pytest tests/integration/test_create_bucket.py  # create bucket options
+uv run pytest tests/integration/test_settings.py       # bucket settings
 uv run pytest tests/integration/test_snapshots.py      # snapshots, including deletion
 uv run pytest tests/integration/test_forks.py          # forks
 uv run pytest tests/integration/test_bucket_info.py    # bucket info
@@ -105,6 +106,7 @@ uv run pytest tests/integration/ -vv -s
   - `anonymous_status()`: Status of an unsigned GET to a bucket's public URL (`<bucket>.t3.tigrisfiles.io`; override the domain with `TIGRIS_PUBLIC_DOMAIN`)
 
 - **`test_create_bucket.py`**: Tests creation options: default storage class, regions, public access and anonymous listing, via helper, context manager and decorator
+- **`test_settings.py`**: Tests `update_bucket`: storage class, regions and cache control read back from the metadata endpoint, object ACL and nosniff toggles, public access via the bucket ACL and listing visibility, rejected custom domain, missing bucket
 - **`test_snapshots.py`**: Tests snapshot creation, listing, deletion, and data access
 - **`test_forks.py`**: Tests bucket forking and data isolation
 - **`test_bucket_info.py`**: Tests `has_snapshot_enabled` and `get_bucket_info` on snapshot-enabled, regular, forked, and fork-parent buckets

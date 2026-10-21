@@ -7,12 +7,12 @@ if TYPE_CHECKING:
 else:
     S3Client = object
 
-from tigris_boto3_ext._payload import (
+from tigris_boto3_ext._transport import signed_request
+from tigris_boto3_ext.buckets._payload import (
     parse_fork_info,
     parse_soft_delete,
     parse_timestamp,
 )
-from tigris_boto3_ext._transport import signed_request
 
 
 def has_snapshot_enabled(s3_client: S3Client, bucket_name: str) -> bool:

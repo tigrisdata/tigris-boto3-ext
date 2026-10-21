@@ -47,6 +47,7 @@ Everything is imported from `tigris_boto3_ext`. Each page lists the feature's he
 | Feature | What it does | Start with | Docs | Example |
 |---|---|---|---|---|
 | Create bucket | Public access, default storage class, region placement and anonymous listing at creation | `create_bucket` | [docs/create-bucket.md](docs/create-bucket.md) | [create_bucket_usage.py](examples/create_bucket_usage.py) |
+| Bucket settings | Change access, default storage class, placement, `Cache-Control`, custom domain and response headers after creation | `update_bucket` | [docs/settings.md](docs/settings.md) | [settings_usage.py](examples/settings_usage.py) |
 | Snapshots | Point-in-time copies of a bucket: create, list, read from, delete | `create_snapshot_bucket`, `create_snapshot`, `get_object_from_snapshot` | [docs/snapshots.md](docs/snapshots.md) | [snapshots_usage.py](examples/snapshots_usage.py) |
 | Forks | A new bucket from an existing bucket or one of its snapshots, zero-copy; list a bucket's forks | `create_fork`, `list_forks` | [docs/forks.md](docs/forks.md) | [forks_usage.py](examples/forks_usage.py) |
 | Bucket info | Snapshot and fork flags from `HeadBucket`; placement, storage class, forks, soft delete and size from the metadata endpoint | `get_bucket_info`, `get_bucket_metadata` | [docs/bucket-info.md](docs/bucket-info.md) | [bucket_info_usage.py](examples/bucket_info_usage.py) |
@@ -105,7 +106,7 @@ boto3 lets you hook into a request just before it is signed. This library regist
 
 Contexts nest. When two active contexts set the same header on the same operation, the inner one wins.
 
-A few features talk to Tigris endpoints that are not S3 operations — the Bundle API (`/{bucket}?bundle`), bucket metadata (`/{bucket}?metadata`), soft-delete settings (`PATCH /{bucket}`), the bucket listing with Tigris details and account stats (`GET /?Include…`), fork listing (`X-Tigris-Fork`) and deleted-bucket listing and restore (`/?OnlyDeleted=true`, `/{bucket}?restore`). For those the library signs and sends the request itself with the client's credentials, region and endpoint, and a gateway error raises `TigrisAPIError` (`status_code`, `code`, `message`, `request_id`).
+A few features talk to Tigris endpoints that are not S3 operations — the Bundle API (`/{bucket}?bundle`), bucket metadata (`/{bucket}?metadata`), bucket settings and soft delete (`PATCH /{bucket}`), the bucket listing with Tigris details and account stats (`GET /?Include…`), fork listing (`X-Tigris-Fork`) and deleted-bucket listing and restore (`/?OnlyDeleted=true`, `/{bucket}?restore`). For those the library signs and sends the request itself with the client's credentials, region and endpoint, and a gateway error raises `TigrisAPIError` (`status_code`, `code`, `message`, `request_id`).
 
 ### Thread safety
 
