@@ -1,7 +1,7 @@
 """Examples for updating bucket settings with tigris-boto3-ext.
 
 A bucket's access, default storage class, placement, Cache-Control, custom
-domain and response headers can be changed after creation. update_bucket
+domain, response headers and snapshot type can be changed after creation. update_bucket
 sends only the settings you pass. It is a Tigris endpoint rather than an S3
 operation. See https://www.tigrisdata.com/docs/buckets/settings/
 """
@@ -68,6 +68,16 @@ def example_response_headers():
     )
 
 
+def example_snapshot_type():
+    """Turn an existing bucket into a snapshot bucket and back."""
+    print("\n=== Snapshot type ===")
+
+    update_bucket(s3, BUCKET, snapshot_enabled=True)
+    print(f"snapshot_enabled={get_bucket_metadata(s3, BUCKET)['snapshot_enabled']}")
+    update_bucket(s3, BUCKET, snapshot_enabled=False)
+    print(f"snapshot_enabled={get_bucket_metadata(s3, BUCKET)['snapshot_enabled']}")
+
+
 def example_custom_domain():
     """Serve the bucket from your own hostname; its CNAME must already point at the bucket."""
     print("\n=== Custom domain ===")
@@ -125,6 +135,7 @@ if __name__ == "__main__":
         example_make_public()
         example_storage_and_placement()
         example_response_headers()
+        example_snapshot_type()
         example_custom_domain()
         example_back_to_defaults()
         example_validation()

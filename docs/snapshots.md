@@ -9,7 +9,7 @@ All names below are imported from `tigris_boto3_ext`.
 
 ## Enable snapshots on a bucket
 
-Snapshots are switched on when the bucket is created. Existing buckets can be switched in the Tigris dashboard under Bucket Settings.
+Snapshots are switched on when the bucket is created, or later with [`update_bucket(snapshot_enabled=True)`](settings.md).
 
 ```python
 from tigris_boto3_ext import TigrisSnapshotEnabled, create_snapshot_bucket, snapshot_enabled
