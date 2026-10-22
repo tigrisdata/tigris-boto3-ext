@@ -112,6 +112,13 @@ SOFT_DELETE_METADATA = {
     "soft_delete": {"enabled": True, "retention_days": 30},
     "acl_settings": {"allow_object_acl": True},
     "website": {"domain_name": "files.example.com"},
+    "object_notifications": {
+        "enabled": True,
+        "web_hook": "https://api.example.com/hooks/tigris",
+        "region": "tigris-server-oke-fra-1",
+        "filter": 'WHERE `Event-Type` = "OBJECT_DELETED"',
+        "auth": {"token": "****"},
+    },
 }
 
 
@@ -180,6 +187,12 @@ class TestGetBucketMetadata:
         assert info["allow_object_acl"] is False
         assert info["cache_control"] is None
         assert info["custom_domain"] is None
+        assert info["notifications"] == {
+            "enabled": False,
+            "url": None,
+            "filter": None,
+            "auth": None,
+        }
         assert info["size"] is None
         assert info["raw"] == CHILD_METADATA
 
@@ -221,6 +234,12 @@ class TestGetBucketMetadata:
         assert info["allow_object_acl"] is True
         assert info["cache_control"] == "max-age=60"
         assert info["custom_domain"] == "files.example.com"
+        assert info["notifications"] == {
+            "enabled": True,
+            "url": "https://api.example.com/hooks/tigris",
+            "filter": 'WHERE `Event-Type` = "OBJECT_DELETED"',
+            "auth": "token",
+        }
 
     @patch("tigris_boto3_ext.buckets.info.signed_request")
     def test_gateway_errors_propagate(self, mock_request, mock_s3_client):

@@ -10,6 +10,7 @@ else:
 from tigris_boto3_ext._transport import signed_request
 from tigris_boto3_ext.buckets._payload import (
     parse_fork_info,
+    parse_notifications,
     parse_soft_delete,
     parse_timestamp,
 )
@@ -125,11 +126,13 @@ def get_bucket_metadata(
             'allow_object_acl': bool,
             'cache_control': str or None,
             'custom_domain': str or None,
+            'notifications': {'enabled': bool, 'url': str or None, 'filter': str or None,
+                              'auth': 'token', 'basic' or None},
             'size': {'objects', 'bytes', 'objects_all_versions'} or None,  # None unless with_size
             'raw': dict,                         # the full response body
         }
-        Settings families (lifecycle rules, CORS, notifications, shadow bucket,
-        shares) are available under ``raw`` in their wire shape. The size
+        Settings families (lifecycle rules, CORS, shadow bucket, shares) are
+        available under ``raw`` in their wire shape. The size
         values are server-side estimates, updated asynchronously; they can
         trail recent writes by a few seconds. ``fork_parents`` is recorded with
         the fork itself; ``is_fork_parent`` on the source bucket is refreshed
@@ -181,6 +184,7 @@ def get_bucket_metadata(
         ),
         "cache_control": raw.get("cache_control") or None,
         "custom_domain": (raw.get("website") or {}).get("domain_name") or None,
+        "notifications": parse_notifications(raw.get("object_notifications")),
         "size": {
             "objects": raw.get("estimated_unique_rows"),
             "bytes": raw.get("estimated_size"),

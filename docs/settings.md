@@ -36,7 +36,7 @@ The result is `{"name", "request_id", "raw"}`. Read the new values back with [`g
 | `cache_control` | a `Cache-Control` value, or `""` to clear | Default `Cache-Control` header served with objects that have none of their own. |
 | `custom_domain` | a hostname | Serve the bucket from your own domain. The domain's CNAME must already point at the bucket, or the update is rejected with `InvalidArgument`. |
 | `nosniff` | `True`, `False` | Serve objects with `X-Content-Type-Options: nosniff`. |
-| `snapshot_enabled` | `True`, `False` | Switch between a [snapshot bucket](snapshots.md) and a regular one. Refused with `InvalidArgument` when disabling on a fork or a bucket with forks, and when enabling on a bucket with lifecycle or expiration rules. Existing snapshots are kept while disabled and usable again once re-enabled. `HeadBucket`, metadata and listings show the new type at once; object operations follow within seconds. |
+| `snapshot_enabled` | `True`, `False` | Switch between a [snapshot bucket](snapshots.md) and a regular one. Refused with `InvalidArgument` when disabling on a fork or a bucket with forks, and when enabling on a bucket with [lifecycle rules](lifecycle.md); a bucket that was ever snapshot-enabled cannot take lifecycle rules afterwards. Existing snapshots are kept while disabled and usable again once re-enabled. `HeadBucket`, metadata and listings show the new type at once; object operations follow within seconds. |
 
 Unknown storage classes and access values raise `ValueError`, non-boolean flags `TypeError`, and a call with no settings `ValueError`, all before any request is sent.
 

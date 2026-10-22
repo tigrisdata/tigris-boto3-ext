@@ -58,6 +58,22 @@ def parse_soft_delete(info: Optional[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def parse_notifications(info: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Normalize an ``object_notifications`` block; the gateway masks credentials, so only the auth kind is kept."""
+    info = info or {}
+    auth = info.get("auth") or {}
+    return {
+        "enabled": bool(info.get("enabled", False)),
+        "url": info.get("web_hook") or None,
+        "filter": info.get("filter") or None,
+        "auth": "token"
+        if "token" in auth
+        else "basic"
+        if "basic_user" in auth
+        else None,
+    }
+
+
 def parse_bucket_entry(entry: dict[str, Any]) -> dict[str, Any]:
     """Normalize one entry of a ``GET /`` bucket listing.
 

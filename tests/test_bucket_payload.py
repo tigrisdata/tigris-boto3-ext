@@ -7,6 +7,7 @@ from tigris_boto3_ext.buckets._payload import (
     parse_bucket_entry,
     parse_fork_info,
     parse_listing_page,
+    parse_notifications,
     parse_soft_delete,
 )
 
@@ -89,6 +90,31 @@ class TestParseSoftDelete:
         }
         assert parse_soft_delete(None) == {"enabled": False, "retention_days": None}
         assert parse_soft_delete({}) == {"enabled": False, "retention_days": None}
+
+
+class TestParseNotifications:
+    def test_token_basic_and_absent(self):
+        url = "https://api.example.com/hooks/tigris"
+        assert parse_notifications(
+            {"enabled": True, "web_hook": url, "region": "x", "auth": {"token": "****"}}
+        ) == {"enabled": True, "url": url, "filter": None, "auth": "token"}
+        assert parse_notifications(
+            {
+                "enabled": False,
+                "web_hook": url,
+                "filter": 'WHERE `key` REGEXP "^images/"',
+                "auth": {"basic_user": "hook", "basic_pass": "****"},
+            }
+        ) == {
+            "enabled": False,
+            "url": url,
+            "filter": 'WHERE `key` REGEXP "^images/"',
+            "auth": "basic",
+        }
+        cleared = {"enabled": False, "url": None, "filter": None, "auth": None}
+        assert parse_notifications({"enabled": False}) == cleared
+        assert parse_notifications({}) == cleared
+        assert parse_notifications(None) == cleared
 
 
 class TestParseBucketEntry:
