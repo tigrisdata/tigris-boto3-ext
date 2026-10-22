@@ -51,6 +51,7 @@ Everything is imported from `tigris_boto3_ext`. Each page lists the feature's he
 | Object notifications | Deliver object events to a webhook, with optional filter and authentication | `set_bucket_notifications` | [docs/notifications.md](docs/notifications.md) | [notifications_usage.py](examples/notifications_usage.py) |
 | CORS | boto3's standard CORS calls work on Tigris; the constraints Tigris adds | `s3.put_bucket_cors` | [docs/cors.md](docs/cors.md) | — |
 | Lifecycle rules | boto3's standard lifecycle calls work on Tigris; the constraints Tigris adds | `s3.put_bucket_lifecycle_configuration` | [docs/lifecycle.md](docs/lifecycle.md) | — |
+| Data migration | Take over a bucket from another S3 provider without an upfront copy: configure the source, list either side, schedule and check object copies | `set_bucket_migration`, `migrate_object`, `is_object_migrated`, `list_objects_from_source` | [docs/migration.md](docs/migration.md) | [migration_usage.py](examples/migration_usage.py) |
 | Snapshots | Point-in-time copies of a bucket: create, list, read from, delete | `create_snapshot_bucket`, `create_snapshot`, `get_object_from_snapshot` | [docs/snapshots.md](docs/snapshots.md) | [snapshots_usage.py](examples/snapshots_usage.py) |
 | Forks | A new bucket from an existing bucket or one of its snapshots, zero-copy; list a bucket's forks | `create_fork`, `list_forks` | [docs/forks.md](docs/forks.md) | [forks_usage.py](examples/forks_usage.py) |
 | Bucket info | Snapshot and fork flags from `HeadBucket`; placement, storage class, forks, soft delete and size from the metadata endpoint | `get_bucket_info`, `get_bucket_metadata` | [docs/bucket-info.md](docs/bucket-info.md) | [bucket_info_usage.py](examples/bucket_info_usage.py) |
@@ -63,7 +64,7 @@ Everything is imported from `tigris_boto3_ext`. Each page lists the feature's he
 
 ## Usage patterns
 
-Create bucket, snapshots, forks, rename and soft delete each come in three shapes. They do the same thing; pick by how much code the Tigris behaviour should cover. Bucket info, force delete and the Bundle API are single calls and come as helpers only.
+Create bucket, snapshots, forks, rename, soft delete and the migration list source each come in three shapes. They do the same thing; pick by how much code the Tigris behaviour should cover. Bucket info, force delete and the Bundle API are single calls and come as helpers only.
 
 ### Helper functions
 

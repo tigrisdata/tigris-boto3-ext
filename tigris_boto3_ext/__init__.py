@@ -20,6 +20,7 @@ from .buckets.delete import (
 from .buckets.forks import TigrisFork, create_fork, forked_from, list_forks
 from .buckets.info import get_bucket_info, get_bucket_metadata, has_snapshot_enabled
 from .buckets.listing import list_buckets
+from .buckets.migration import set_bucket_migration
 from .buckets.notifications import set_bucket_notifications
 from .buckets.settings import update_bucket
 from .buckets.snapshots import (
@@ -52,6 +53,13 @@ from .objects.delete import (
     purge_deleted_object,
     restore_deleted_object,
     with_soft_delete_view,
+)
+from .objects.migration import (
+    TigrisListSource,
+    is_object_migrated,
+    list_objects_from_source,
+    migrate_object,
+    with_list_source,
 )
 from .objects.rename import TigrisRename, rename_object, with_rename
 from .objects.snapshots import (
@@ -102,6 +110,13 @@ __all__ = [
     "update_bucket",
     # Object notifications
     "set_bucket_notifications",
+    # Migration
+    "set_bucket_migration",
+    "TigrisListSource",
+    "with_list_source",
+    "migrate_object",
+    "is_object_migrated",
+    "list_objects_from_source",
     # Storage stats
     "get_stats",
     # Object rename

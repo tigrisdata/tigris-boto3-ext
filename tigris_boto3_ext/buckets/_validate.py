@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from typing import Union
+from urllib.parse import urlsplit
 
 STORAGE_CLASSES = ("STANDARD", "STANDARD_IA", "GLACIER", "GLACIER_IR")
 ACCESS_VALUES = ("public", "private")
@@ -35,4 +36,12 @@ def flag(value: object, name: str) -> bool:
     if not isinstance(value, bool):
         msg = f"{name} must be a bool"
         raise TypeError(msg)
+    return value
+
+
+def https_url(value: str, name: str) -> str:
+    parts = urlsplit(value)
+    if parts.scheme != "https" or not parts.hostname:
+        msg = f"{name} must be an https:// URL with a host, got {value!r}"
+        raise ValueError(msg)
     return value

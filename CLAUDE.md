@@ -50,6 +50,7 @@ tigris_boto3_ext/
 │   ├── create.py        # TigrisBucketOptions, with_bucket_options, create_bucket
 │   ├── settings.py      # update_bucket
 │   ├── notifications.py # set_bucket_notifications
+│   ├── migration.py     # set_bucket_migration
 │   ├── delete.py        # TigrisSoftDeleteEnabled, soft_delete_enabled, create_soft_delete_bucket, force_delete_bucket, list_deleted_buckets, restore_bucket, set_bucket_soft_delete
 │   ├── snapshots.py     # TigrisSnapshotEnabled, TigrisSnapshot, snapshot_enabled, with_snapshot, create_snapshot_bucket, create_snapshot, list_snapshots, delete_snapshot, get_snapshot_version
 │   ├── forks.py         # TigrisFork, forked_from, create_fork, list_forks
@@ -59,10 +60,11 @@ tigris_boto3_ext/
     ├── rename.py        # TigrisRename, with_rename, rename_object
     ├── snapshots.py     # get_object_from_snapshot, list_objects_from_snapshot, head_object_from_snapshot
     ├── delete.py        # TigrisSoftDeleteView, with_soft_delete_view, list_deleted_objects, list_deleted_object_versions, purge_deleted_object, restore_deleted_object
+    ├── migration.py     # TigrisListSource, with_list_source, migrate_object, is_object_migrated, list_objects_from_source
     └── bundle.py        # BundleError, BundleResponse, bundle_objects
 ```
 
-Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Infrastructure both resources use stays at the package root: `_internal.py` (header injection) and `_transport.py` (signed requests to non-S3 endpoints, paging parameters). Code shared by several feature modules of one resource lives in that resource's folder as a private module, never in a sibling feature module: `buckets/_payload.py` (parsers for the JSON of the bucket endpoints) and `buckets/_validate.py` (argument checks shared by `create.py` and `settings.py`, such as storage classes and region lists). A helper that calls one of those endpoints still lives in the resource module it is about (`get_bucket_metadata` in `buckets/info.py`).
+Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Infrastructure both resources use stays at the package root: `_internal.py` (header injection) and `_transport.py` (signed requests to non-S3 endpoints, paging parameters). Code shared by several feature modules of one resource lives in that resource's folder as a private module, never in a sibling feature module: `buckets/_payload.py` (parsers for the JSON of the bucket endpoints) and `buckets/_validate.py` (argument checks shared by `create.py`, `settings.py`, `notifications.py` and `migration.py`, such as storage classes, region lists and https URLs). A helper that calls one of those endpoints still lives in the resource module it is about (`get_bucket_metadata` in `buckets/info.py`).
 
 ### Feature footprint
 
