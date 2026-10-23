@@ -61,7 +61,9 @@ from .objects.migration import (
     migrate_object,
     with_list_source,
 )
+from .objects.presign import presign
 from .objects.rename import TigrisRename, rename_object, with_rename
+from .objects.restore import get_restore_info, restore_object
 from .objects.snapshots import (
     get_object_from_snapshot,
     head_object_from_snapshot,
@@ -110,6 +112,11 @@ __all__ = [
     "update_bucket",
     # Object notifications
     "set_bucket_notifications",
+    # Archive restore
+    "restore_object",
+    "get_restore_info",
+    # Presigned URLs
+    "presign",
     # Migration
     "set_bucket_migration",
     "TigrisListSource",

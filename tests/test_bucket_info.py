@@ -13,7 +13,6 @@ from tigris_boto3_ext import (
     has_snapshot_enabled,
 )
 from tigris_boto3_ext._transport import TigrisResponse
-from tigris_boto3_ext.buckets._payload import parse_timestamp
 
 
 def _head_bucket_response(headers):
@@ -258,33 +257,3 @@ class TestGetBucketMetadata:
     def test_rejects_empty_bucket_name(self, mock_s3_client):
         with pytest.raises(ValueError, match="bucket_name is required"):
             get_bucket_metadata(mock_s3_client, "")
-
-
-class TestParseTimestamp:
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (
-                "2026-10-14T13:56:39.395637075Z",
-                datetime(2026, 10, 14, 13, 56, 39, 395637, tzinfo=timezone.utc),
-            ),
-            (
-                "2026-10-14T13:56:39Z",
-                datetime(2026, 10, 14, 13, 56, 39, tzinfo=timezone.utc),
-            ),
-            (
-                "2026-10-14T13:56:39.5+00:00",
-                datetime(2026, 10, 14, 13, 56, 39, 500000, tzinfo=timezone.utc),
-            ),
-            (
-                "2026-10-14T13:56:39",
-                datetime(2026, 10, 14, 13, 56, 39, tzinfo=timezone.utc),
-            ),
-            ("", None),
-            (None, None),
-            (12345, None),
-            ("not a date", None),
-        ],
-    )
-    def test_gateway_timestamp_formats(self, value, expected):
-        assert parse_timestamp(value) == expected
