@@ -80,6 +80,18 @@ class TigrisResponse:
         return json.loads(self.body)
 
 
+def client_credentials(s3_client: S3Client) -> Any:
+    """The client's resolved credentials, frozen for signing.
+
+    Raises:
+        botocore.exceptions.NoCredentialsError: If the client has none
+    """
+    credentials = s3_client._request_signer._credentials  # type: ignore[attr-defined]  # noqa: SLF001
+    if credentials is None:
+        raise NoCredentialsError
+    return credentials.get_frozen_credentials()
+
+
 def signed_request(
     s3_client: S3Client,
     method: str,
@@ -120,10 +132,7 @@ def signed_request(
         botocore.exceptions.HTTPClientError: On connection failures, as for S3 calls
     """
     endpoint = s3_client.meta.endpoint_url
-    credentials = s3_client._request_signer._credentials  # type: ignore[attr-defined]  # noqa: SLF001
-    if credentials is None:
-        raise NoCredentialsError
-    frozen = credentials.get_frozen_credentials()
+    frozen = client_credentials(s3_client)
     region = s3_client.meta.region_name or "auto"
 
     url = f"{endpoint.rstrip('/')}/{path.lstrip('/')}"

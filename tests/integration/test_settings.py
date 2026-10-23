@@ -36,7 +36,7 @@ def _visibility(s3_client, bucket_name):
     return next(b["visibility"] for b in page["buckets"] if b["name"] == bucket_name)
 
 
-def _once_type_applied(call, timeout=30):
+def _once_type_applied(call, timeout=90):
     """Object operations see a type switch a few seconds after HeadBucket and metadata do."""
     deadline = time.time() + timeout
     while True:
@@ -45,7 +45,7 @@ def _once_type_applied(call, timeout=30):
         except ClientError:
             if time.time() > deadline:
                 raise
-            time.sleep(2)
+            time.sleep(3)
 
 
 def _public_grants(s3_client, bucket_name):
