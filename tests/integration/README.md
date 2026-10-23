@@ -60,6 +60,7 @@ One file per feature, matching the pages under `docs/`:
 uv run pytest tests/integration/test_create_bucket.py  # create bucket options
 uv run pytest tests/integration/test_settings.py       # bucket settings
 uv run pytest tests/integration/test_notifications.py  # object notifications
+uv run pytest tests/integration/test_migration.py      # data migration
 uv run pytest tests/integration/test_snapshots.py      # snapshots, including deletion
 uv run pytest tests/integration/test_forks.py          # forks
 uv run pytest tests/integration/test_bucket_info.py    # bucket info
@@ -115,6 +116,7 @@ uv run pytest tests/integration/ -vv -s
 - **`test_stats.py`**: Tests `get_stats` against a single-bucket page
 - **`test_rename.py`**: Tests in-place rename via the helper, context manager, and decorator, including nested and special-character keys
 - **`test_notifications.py`**: Tests `set_bucket_notifications`: configure with token auth and a filter, pause with basic auth, remove, all read back through `get_bucket_metadata`; rejected filter and missing bucket
+- **`test_migration.py`**: Tests `set_bucket_migration` refusals (Tigris source, rejected credentials) and removal, and the object helpers on a bucket without a source
 - **`test_soft_delete.py`**: Tests creating soft-delete buckets, the soft-delete view, listing, purging and restoring soft-deleted objects, and force-deleting non-empty buckets
 - **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
 - **`test_context_managers_integration.py`**: Tests context manager behavior across features, including nesting

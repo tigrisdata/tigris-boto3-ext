@@ -2,7 +2,6 @@
 
 import json
 from typing import TYPE_CHECKING, Any, Optional
-from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.client import S3Client
@@ -80,7 +79,7 @@ def set_bucket_notifications(
             raise ValueError(msg)
     else:
         settings["enabled"] = _validate.flag(enabled, "enabled")
-        settings["web_hook"] = _webhook(url)
+        settings["web_hook"] = _validate.https_url(url, "url")
         if event_filter is not None:
             settings["filter"] = event_filter
         auth = _auth(token, username, password)
@@ -100,14 +99,6 @@ def set_bucket_notifications(
         "request_id": response.headers.get("x-amz-request-id"),
         "raw": raw,
     }
-
-
-def _webhook(url: str) -> str:
-    parts = urlsplit(url)
-    if parts.scheme != "https" or not parts.hostname:
-        msg = f"url must be an https:// URL with a host, got {url!r}"
-        raise ValueError(msg)
-    return url
 
 
 def _auth(
