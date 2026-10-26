@@ -70,7 +70,7 @@ from .objects.snapshots import (
     list_objects_from_snapshot,
 )
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     # Bucket info
