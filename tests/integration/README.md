@@ -18,6 +18,7 @@ Set the following environment variables:
 export AWS_ENDPOINT_URL_S3="https://t3.storage.dev"
 export AWS_ACCESS_KEY_ID="your-access-key-id"
 export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+export AWS_ENDPOINT_URL_IAM="https://iam.storage.dev"  # access key scope tests only
 ```
 
 Alternatively, you can use `AWS_ENDPOINT_URL` instead of `AWS_ENDPOINT_URL_S3`:
@@ -34,6 +35,7 @@ Create a `.env` file in the project root:
 AWS_ENDPOINT_URL_S3=https://t3.storage.dev
 AWS_ACCESS_KEY_ID=your-access-key-id
 AWS_SECRET_ACCESS_KEY=your-secret-access-key
+AWS_ENDPOINT_URL_IAM=https://iam.storage.dev
 ```
 
 Then load it before running tests:
@@ -63,6 +65,7 @@ uv run pytest tests/integration/test_notifications.py  # object notifications
 uv run pytest tests/integration/test_migration.py      # data migration
 uv run pytest tests/integration/test_restore.py        # archive restore
 uv run pytest tests/integration/test_presign.py        # presigned URLs
+uv run pytest tests/integration/test_access_keys.py    # access key scope (needs AWS_ENDPOINT_URL_IAM)
 uv run pytest tests/integration/test_snapshots.py      # snapshots, including deletion
 uv run pytest tests/integration/test_forks.py          # forks
 uv run pytest tests/integration/test_bucket_info.py    # bucket info
@@ -121,6 +124,7 @@ uv run pytest tests/integration/ -vv -s
 - **`test_migration.py`**: Tests `set_bucket_migration` refusals (Tigris source, rejected credentials) and removal, and the object helpers on a bucket without a source
 - **`test_restore.py`**: Tests `get_restore_info` and `restore_object` on GLACIER, STANDARD and GLACIER_IR objects: archived, in-progress, repeated restore, refusals, missing key
 - **`test_presign.py`**: Tests `presign` download and upload URLs on a private bucket and a snapshot-pinned download
+- **`test_access_keys.py`**: Tests `create_access_key`, the context manager and the decorator: the echoed scope, `AccessDenied` on `ListBuckets` for a `no_default_allow` key, `standard` without the header. Needs `AWS_ENDPOINT_URL_IAM` and a key that may create access keys; skipped otherwise
 - **`test_soft_delete.py`**: Tests creating soft-delete buckets, the soft-delete view, listing, purging and restoring soft-deleted objects, and force-deleting non-empty buckets
 - **`test_bundle.py`**: Tests Bundle API streaming multi-object fetch
 - **`test_context_managers_integration.py`**: Tests context manager behavior across features, including nesting

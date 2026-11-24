@@ -85,3 +85,17 @@ class TestUnregisterEdgeCases:
             assert key in _handler_registry
         finally:
             active.unregister()
+
+
+class TestServiceBinding:
+    def test_event_follows_the_client_service(self, mock_s3_client):
+        mock_s3_client.meta.service_model.service_name = "iam"
+
+        injector = create_header_injector(mock_s3_client, "CreateAccessKey", {})
+
+        assert injector.event_name == "before-sign.iam.CreateAccessKey"
+
+    def test_s3_when_the_client_names_no_service(self, mock_s3_client):
+        injector = create_header_injector(mock_s3_client, "CreateBucket", {})
+
+        assert injector.event_name == "before-sign.s3.CreateBucket"

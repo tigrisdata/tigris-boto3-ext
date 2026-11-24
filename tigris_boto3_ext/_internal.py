@@ -17,6 +17,11 @@ _handler_registry: dict[
 _guard_lock = threading.Lock()
 
 
+def _service(client: Any) -> str:
+    name = getattr(getattr(client.meta, "service_model", None), "service_name", None)
+    return name if isinstance(name, str) else "s3"
+
+
 class HeaderInjector:
     """Manages header injection via boto3 event system with support for nesting."""
 
@@ -96,14 +101,14 @@ def create_header_injector(
     Create and configure a header injector.
 
     Args:
-        client: boto3 S3 client
-        operation: S3 operation name (e.g., 'CreateBucket', 'GetObject')
+        client: boto3 client; the event is bound to its service (s3, iam)
+        operation: Operation name (e.g., 'CreateBucket', 'CreateAccessKey')
         headers: Headers to inject
 
     Returns:
         Configured HeaderInjector instance
     """
-    event_name = f"before-sign.s3.{operation}"
+    event_name = f"before-sign.{_service(client)}.{operation}"
     injector = HeaderInjector(client, event_name)
     injector.set_headers(headers)
     return injector
@@ -130,4 +135,7 @@ def create_multi_operation_injector(
 
 def has_active_injector(client: S3Client, operation: str) -> bool:
     """True while a header injector is registered for this client and operation."""
-    return (id(client), f"before-sign.s3.{operation}") in _handler_registry
+    return (
+        id(client),
+        f"before-sign.{_service(client)}.{operation}",
+    ) in _handler_registry

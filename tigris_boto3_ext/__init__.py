@@ -35,6 +35,11 @@ from .buckets.snapshots import (
     with_snapshot,
 )
 from .buckets.stats import get_stats
+from .iam.access_keys import (
+    TigrisAccessKeyScope,
+    create_access_key,
+    with_access_key_scope,
+)
 from .objects.bundle import (
     BUNDLE_COMPRESSION_GZIP,
     BUNDLE_COMPRESSION_NONE,
@@ -112,6 +117,10 @@ __all__ = [
     "update_bucket",
     # Object notifications
     "set_bucket_notifications",
+    # Access key scope
+    "TigrisAccessKeyScope",
+    "with_access_key_scope",
+    "create_access_key",
     # Archive restore
     "restore_object",
     "get_restore_info",

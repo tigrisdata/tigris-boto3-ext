@@ -57,6 +57,8 @@ tigris_boto3_ext/
 │   ├── forks.py         # TigrisFork, forked_from, create_fork, list_forks
 │   ├── listing.py       # list_buckets
 │   └── stats.py         # get_stats
+├── iam/
+│   └── access_keys.py   # TigrisAccessKeyScope, with_access_key_scope, create_access_key
 └── objects/
     ├── rename.py        # TigrisRename, with_rename, rename_object
     ├── snapshots.py     # get_object_from_snapshot, list_objects_from_snapshot, head_object_from_snapshot
@@ -67,7 +69,7 @@ tigris_boto3_ext/
     └── bundle.py        # BundleError, BundleResponse, bundle_objects
 ```
 
-Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Infrastructure both resources use stays at the package root: `_internal.py` (header injection), `_transport.py` (signed requests to non-S3 endpoints, paging parameters, the client's credentials) and `_utils.py` (small helpers such as `parse_timestamp`). Code shared by several feature modules of one resource lives in that resource's folder as a private module, never in a sibling feature module: `buckets/_payload.py` (parsers for the JSON of the bucket endpoints) and `buckets/_validate.py` (argument checks shared by `create.py`, `settings.py`, `notifications.py` and `migration.py`, such as storage classes, region lists and https URLs). A helper that calls one of those endpoints still lives in the resource module it is about (`get_bucket_metadata` in `buckets/info.py`).
+Placement rule: a function lives under the resource its S3 operation targets (`CreateBucket`/`DeleteBucket`/`HeadBucket` → `buckets/`, `GetObject`/`DeleteObject`/`ListObjectsV2` → `objects/`, IAM operations such as `CreateAccessKey` → `iam/`), in the module named for its feature. Each feature module holds its context manager class, decorator and helper functions together, under `""" Context Managers """`, `""" Decorators """` and `""" Helpers """` section markers. Everything public is re-exported from `__init__.py` and listed in `__all__`; users never import from a subpackage. Infrastructure both resources use stays at the package root: `_internal.py` (header injection), `_transport.py` (signed requests to non-S3 endpoints, paging parameters, the client's credentials) and `_utils.py` (small helpers such as `parse_timestamp`). Code shared by several feature modules of one resource lives in that resource's folder as a private module, never in a sibling feature module: `buckets/_payload.py` (parsers for the JSON of the bucket endpoints) and `buckets/_validate.py` (argument checks shared by `create.py`, `settings.py`, `notifications.py` and `migration.py`, such as storage classes, region lists and https URLs). A helper that calls one of those endpoints still lives in the resource module it is about (`get_bucket_metadata` in `buckets/info.py`).
 
 ### Feature footprint
 
@@ -86,7 +88,7 @@ The README is the front door only: install, quick start, the feature table, the 
 
 ### Header injection via boto3 events
 
-Everything except the bundle API works by injecting custom `X-Tigris-*` headers into S3 requests through boto3's event system. `_internal.py` provides the `HeaderInjector` infrastructure. It registers handlers on `before-sign.s3.<Operation>` events so headers are included in the SigV4 signature. A global registry tracks `(client_id, event_name)` pairs to allow safe nesting of multiple context managers on the same client (inner injector wins on header conflicts). Helpers whose header changes the meaning of a destructive operation (`delete_snapshot`, `force_delete_bucket`, `restore_deleted_object`) take `_guard_lock` and refuse to run while another injector is active for the same operation on the same client.
+Everything except the bundle API works by injecting custom `X-Tigris-*` headers into S3 requests through boto3's event system. `_internal.py` provides the `HeaderInjector` infrastructure. It registers handlers on `before-sign.<service>.<Operation>` events, the service taken from the client (`s3`, or `iam` for access key scope), so headers are included in the SigV4 signature. A global registry tracks `(client_id, event_name)` pairs to allow safe nesting of multiple context managers on the same client (inner injector wins on header conflicts). Helpers whose header changes the meaning of a destructive or permission-granting operation (`delete_snapshot`, `force_delete_bucket`, `restore_deleted_object`, `restore_object`, `create_access_key`) take `_guard_lock` and refuse to run while another injector is active for the same operation on the same client.
 
 ### Tigris endpoints outside the S3 API (direct HTTP)
 
