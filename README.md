@@ -14,7 +14,7 @@ Extend boto3 with Tigris-specific features — snapshots, forks, soft delete, in
 pip install tigris-boto3-ext
 ```
 
-Requires Python 3.9+ and boto3 >= 1.26.0.
+Requires Python 3.10+ and boto3 >= 1.26.0.
 
 ## Quick start
 
@@ -62,6 +62,7 @@ Everything is imported from `tigris_boto3_ext`. Each page lists the feature's he
 | Object rename | Move an object to a new key without rewriting its data | `rename_object` | [docs/rename.md](docs/rename.md) | [rename_usage.py](examples/rename_usage.py) |
 | Soft delete | Deleted objects and buckets stay recoverable for 7–90 days: enable, list, restore, purge | `create_soft_delete_bucket`, `set_bucket_soft_delete`, `restore_deleted_object`, `restore_bucket` | [docs/soft-delete.md](docs/soft-delete.md) | [soft_delete_usage.py](examples/soft_delete_usage.py) |
 | Force delete | Delete a bucket that still contains objects | `force_delete_bucket` | [docs/force-delete.md](docs/force-delete.md) | [force_delete_usage.py](examples/force_delete_usage.py) |
+| Access key scope | Create IAM access keys without the default allowed operations, so they can do only what their roles and policies grant | `create_access_key`, `TigrisAccessKeyScope` | [docs/access-keys.md](docs/access-keys.md) | [access_keys_usage.py](examples/access_keys_usage.py) |
 | Bundle API | Thousands of objects in one request, as a streaming tar archive | `bundle_objects` | [docs/bundle.md](docs/bundle.md) | [bundle_usage.py](examples/bundle_usage.py) |
 
 ## Usage patterns
